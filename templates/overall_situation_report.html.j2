@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+   <title>一、整体情况 - 视频业务用户反馈分析</title>
+  <style>
+    :root {
+      --ink: #1d252c;
+      --muted: #65717b;
+      --line: #d7dde2;
+      --panel: #f7f9fb;
+      --brand: #006d77;
+      --accent: #c44536;
+      --green: #4f8a5b;
+      --gold: #b88728;
+      --bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+    }
+    .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 56px; }
+    .eyebrow { color: var(--brand); font-weight: 700; letter-spacing: 0; }
+    h1 { margin: 8px 0 8px; font-size: 30px; }
+    h2 { margin: 34px 0 14px; padding-top: 18px; border-top: 2px solid var(--ink); font-size: 22px; }
+    h3 { margin: 22px 0 10px; font-size: 17px; }
+    .subtle { color: var(--muted); }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 24px 0;
+    }
+    .kpi {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 98px;
+      background: var(--panel);
+    }
+    .kpi .label { color: var(--muted); font-size: 13px; }
+    .kpi .value { font-size: 28px; font-weight: 800; margin-top: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+    .section-band { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; background: white; }
+    th, td { border: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { background: #eef3f5; font-weight: 700; }
+    .bar-row { display: grid; grid-template-columns: 130px 1fr 62px; gap: 10px; align-items: center; margin: 8px 0; }
+    .bar-label { overflow-wrap: anywhere; color: var(--ink); }
+    .bar-track { background: #e9eef1; height: 18px; border-radius: 6px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--brand); border-radius: 6px; min-width: 2px; }
+    .bar-fill.alt { background: var(--accent); }
+    .bar-value { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .insights { margin: 16px 0; padding-left: 20px; }
+    .insights li { margin: 8px 0; }
+    .trend-svg { width: 100%; height: 260px; border: 1px solid var(--line); background: white; border-radius: 8px; }
+    .legend { display: flex; gap: 18px; color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .dot.count { background: var(--brand); }
+    .dot.negative { background: var(--accent); }
+    .tag { display: inline-block; border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px; margin: 2px; background: white; }
+    .quote { border-left: 4px solid var(--brand); padding-left: 10px; color: var(--muted); }
+    @media (max-width: 860px) {
+      .kpis, .grid { grid-template-columns: 1fr; }
+      .page { padding: 22px 14px 42px; }
+      h1 { font-size: 24px; }
+      .bar-row { grid-template-columns: 110px 1fr 48px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="eyebrow">一、整体情况</div>
+     <h1>视频业务用户反馈分析</h1>
+    <p class="subtle">
+      报告周期：
+      {{ result.period.min or result.filters.start_date or "未限定" }}
+      至
+      {{ result.period.max or result.filters.end_date or "未限定" }}
+    </p>
+
+    {% set top_primary = result.primary[0] if result.primary else none %}
+    {% set top_tertiary = result.tertiary[0] if result.tertiary else none %}
+    {% set peak_day = result.daily|max(attribute='count') if result.daily else none %}
+    {% set negative_total = result.daily|sum(attribute='negative_count') %}
+    <section class="kpis">
+      <div class="kpi"><div class="label">反馈/投诉总量</div><div class="value">{{ result.total }}</div></div>
+      <div class="kpi"><div class="label">一级问题最高项</div><div class="value">{{ top_primary.key if top_primary else "无" }}</div></div>
+      <div class="kpi"><div class="label">三级 TOP 问题</div><div class="value">{{ top_tertiary.key if top_tertiary else "无" }}</div></div>
+      <div class="kpi"><div class="label">负向情绪量</div><div class="value">{{ negative_total }}</div></div>
+    </section>
+
+    <h2>1.1 问题分布概览</h2>
+    <div class="section-band">
+      <h3>分析结论</h3>
+      <ul class="insights">
+        {% for insight in result.insights %}
+        <li>{{ insight }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="grid">
+      <section>
+        <h3>一级问题类型分布</h3>
+        {% set max_primary = result.primary[0].count if result.primary else 1 %}
+        {% for item in result.primary %}
+        <div class="bar-row">
+          <div class="bar-label">{{ item.key }}</div>
+          <div class="bar-track"><div class="bar-fill" style="width: {{ (item.count / max_primary * 100)|round(1) }}%"></div></div>
+          <div class="bar-value">{{ item.count }}</div>
+        </div>
+        {% endfor %}
+      </section>
+      <section>
+        <h3>TOP5 三级问题提及量</h3>
+        {% set max_tertiary = result.tertiary[0].count if result.tertiary else 1 %}
+        {% for item in result.tertiary[:5] %}
+        <div class="bar-row">
+          <div class="bar-label">{{ item.key }}</div>
+          <div class="bar-track"><div class="bar-fill alt" style="width: {{ (item.count / max_tertiary * 100)|round(1) }}%"></div></div>
+          <div class="bar-value">{{ item.count }}</div>
+        </div>
+        {% endfor %}
+      </section>
+    </div>
+
+    <h3>一级-二级问题联动</h3>
+    <table>
+      <thead><tr><th>一级标签</th><th>提及量</th><th>主要二级问题</th></tr></thead>
+      <tbody>
+        {% for item in result.primary_secondary %}
+        <tr>
+          <td>{{ item.key }}</td>
+          <td>{{ item.count }}</td>
+          <td>{% for sec in item.secondary %}<span class="tag">{{ sec.key }}：{{ sec.count }}</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3>三级问题原因线索</h3>
+    <table>
+      <thead><tr><th>三级问题</th><th>提及量</th><th>高频诉求</th><th>样例原声</th></tr></thead>
+      <tbody>
+        {% for item in result.top_tertiary_examples %}
+        <tr>
+          <td>{{ item.key }}</td>
+          <td>{{ item.count }}</td>
+          <td>{% for appeal in item.top_appeals %}<span class="tag">{{ appeal.key }}：{{ appeal.count }}</span>{% endfor %}</td>
+          <td>
+            {% for sample in item.samples %}
+            <div class="quote">{{ sample.content_excerpt }}</div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="grid">
+      <section>
+        <h3>情绪分布</h3>
+        {% set max_emotion = result.emotion[0].count if result.emotion else 1 %}
+        {% for item in result.emotion %}
+        <div class="bar-row">
+          <div class="bar-label">{{ item.key }}</div>
+          <div class="bar-track"><div class="bar-fill" style="width: {{ (item.count / max_emotion * 100)|round(1) }}%"></div></div>
+          <div class="bar-value">{{ item.count }}</div>
+        </div>
+        {% endfor %}
+      </section>
+      <section>
+        <h3>服务类型与升级风险</h3>
+        <table>
+          <tbody>
+            <tr><th>服务类型</th><td>{% for item in result.service_type %}<span class="tag">{{ item.key }}：{{ item.count }}</span>{% endfor %}</td></tr>
+            <tr><th>退费诉求</th><td>{% for item in result.refund %}<span class="tag">{{ item.key }}：{{ item.count }}</span>{% endfor %}</td></tr>
+            <tr><th>升级投诉倾向</th><td>{% for item in result.escalation %}<span class="tag">{{ item.key }}：{{ item.count }}</span>{% endfor %}</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+
+    <h2>1.2 投诉趋势与异动表现</h2>
+    <section>
+      <h3>每日问题提及量与负向情绪占比</h3>
+      {% set max_daily = peak_day.count if peak_day else 1 %}
+      <svg class="trend-svg" viewBox="0 0 900 260" preserveAspectRatio="none" role="img" aria-label="每日问题提及量趋势">
+        <line x1="45" y1="220" x2="870" y2="220" stroke="#d7dde2" />
+        <line x1="45" y1="24" x2="45" y2="220" stroke="#d7dde2" />
+        {% for day in result.daily %}
+          {% set x = 55 + loop.index0 * (800 / ((result.daily|length - 1) if result.daily|length > 1 else 1)) %}
+          {% set bar_h = (day.count / max_daily * 170) if max_daily else 0 %}
+          {% set y = 220 - bar_h %}
+          <rect x="{{ x - 10 }}" y="{{ y }}" width="20" height="{{ bar_h }}" fill="#006d77" opacity="0.86" />
+          <circle cx="{{ x }}" cy="{{ 220 - day.negative_ratio * 170 }}" r="5" fill="#c44536" />
+          <text x="{{ x }}" y="240" text-anchor="middle" font-size="10" fill="#65717b">{{ day.date[5:] }}</text>
+          <text x="{{ x }}" y="{{ y - 5 }}" text-anchor="middle" font-size="10" fill="#1d252c">{{ day.count }}</text>
+        {% endfor %}
+      </svg>
+      <div class="legend">
+        <span><i class="dot count"></i>问题量</span>
+        <span><i class="dot negative"></i>负向情绪占比</span>
+      </div>
+    </section>
+
+    <h3>日趋势明细</h3>
+    <table>
+      <thead><tr><th>日期</th><th>问题量</th><th>负向情绪量</th><th>负向占比</th><th>当日 TOP 三级问题</th></tr></thead>
+      <tbody>
+        {% for day in result.daily %}
+        <tr>
+          <td>{{ day.date }}</td>
+          <td>{{ day.count }}</td>
+          <td>{{ day.negative_count }}</td>
+          <td>{{ "%.1f%%"|format(day.negative_ratio * 100) }}</td>
+          <td>{% for item in day.top_tertiary %}<span class="tag">{{ item.key }}：{{ item.count }}</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3>异动节点</h3>
+    {% if result.anomalies %}
+    <table>
+      <thead><tr><th>日期</th><th>问题量</th><th>日环比</th><th>负向占比</th><th>主要问题</th></tr></thead>
+      <tbody>
+        {% for day in result.anomalies %}
+        <tr>
+          <td>{{ day.date }}</td>
+          <td>{{ day.count }}</td>
+          <td>{{ "%.1f%%"|format(day.day_over_day_growth * 100) }}</td>
+          <td>{{ "%.1f%%"|format(day.negative_ratio * 100) }}</td>
+          <td>{% for item in day.top_tertiary %}<span class="tag">{{ item.key }}：{{ item.count }}</span>{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="subtle">当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。</p>
+    {% endif %}
+
+    <h2>口径说明</h2>
+    <table>
+      <tbody>
+        <tr><th>数据来源</th><td>tagged_output.xlsx 已打标工单数据，导入 Elasticsearch 后通过聚合查询生成。</td></tr>
+        <tr><th>适用范围</th><td>对应模板“一、整体情况”：问题分布概览、投诉趋势与异动表现。</td></tr>
+        <tr><th>负向情绪</th><td>当前以「愤怒、失望、焦虑、不满、烦躁」作为负向情绪集合。模板中的负向情绪指数未给出统一算法，因此本页展示负向情绪量和负向占比。</td></tr>
+        <tr><th>多标签统计</th><td>一级、二级、三级及业务等多值字段按分隔符拆分后聚合，因此同一工单可贡献到多个标签桶。</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>
