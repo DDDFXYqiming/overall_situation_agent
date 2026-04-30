@@ -11,6 +11,7 @@ The project is designed for private, local analysis workflows. It reads local sp
 - Generate a local HTML and Markdown report.
 - Run an interactive command-line chat mode.
 - Keep generated outputs, logs, and local credentials outside version control.
+- Filter and analyze unlabeled records (missing primary labels) separately with multi-dimensional clustering (emotion, province, CSP, operation, latent needs, appeals) and time-trend analysis, rendered as independent dashed-border cards in the report.
 
 ## Requirements
 

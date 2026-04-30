@@ -63,15 +63,11 @@ def validate_html_report_for_focus(path: Path, section_focus: str = "full") -> V
             "二级标签类型分布",
             "三级标签类型分布",
             "TOP5 三级问题提及量",
-            "各级标签下钻关系表",
             "一级问题概览",
             "二级问题概览",
             "三级问题概览",
             "三级问题原因线索",
-            "问题链路归因",
-            "运营举措与隐性诉求",
-            "会员类型聚类",
-            "典型案例",
+            "样例原声与典型案例",
         ]
     elif section_focus == "trend":
         required = [
@@ -79,12 +75,8 @@ def validate_html_report_for_focus(path: Path, section_focus: str = "full") -> V
             "1.2 投诉趋势与异动表现",
             "每日问题提及量与负向情绪占比",
             "图表分析总结",
-            "样例原声与原因研判",
-            "情绪分布",
-            "服务类型与升级风险",
-            "日趋势明细",
+            "赛事日用户原声",
             "异动节点",
-            "赛事日标注",
         ]
     else:
         required = OVERALL_SITUATION_SECTIONS
@@ -93,6 +85,4 @@ def validate_html_report_for_focus(path: Path, section_focus: str = "full") -> V
         errors.append("HTML 中不允许引用外部 script 资源。")
     if "http://" in lower or "https://" in lower:
         errors.append("HTML 中不允许引用外部网络资源。")
-    if "口径说明" not in html:
-        errors.append("HTML 缺少口径说明。")
     return ValidationResult(ok=not errors, errors=errors)

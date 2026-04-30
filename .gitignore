@@ -1,6 +1,7 @@
 .env
 !.env.example
 README.internal.md
+.trae/
 
 outputs/
 logs/

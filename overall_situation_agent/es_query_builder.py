@@ -29,6 +29,7 @@ ALLOWED_FIELDS = {
     "end_time",
     "duration_minutes",
     "time_period",
+    "label_group",
     "primary_labels",
     "secondary_labels",
     "tertiary_labels",
@@ -51,6 +52,7 @@ ALLOWED_FIELDS = {
     "customer_keywords",
     "cs_keywords",
     "cs_key_action",
+    "cs_key_action.keyword",
     "operation_action",
     "latent_need",
     "latent_need.keyword",
@@ -61,6 +63,11 @@ ALLOWED_FIELDS = {
     "match_label",
     "biz_member_cluster",
     "biz_type",
+    "marketing_activity_page",
+    "marketing_activity_match_status",
+    "marketing_activity_match_keywords",
+    "age",
+    "gender",
 }
 
 DEFAULT_SOURCE_FIELDS = [
@@ -75,9 +82,15 @@ DEFAULT_SOURCE_FIELDS = [
     "customer_key_appeal",
     "content",
     "operation_action",
+    "cs_key_action",
     "latent_need",
     "latent_need_reason",
     "biz_member_cluster",
+    "marketing_activity_page",
+    "marketing_activity_match_status",
+    "marketing_activity_match_keywords",
+    "age",
+    "gender",
     "match_info",
     "match_label",
     "time_period",
@@ -113,6 +126,7 @@ KEYWORD_FIELD_REWRITES = {
     "latent_need": "latent_need.keyword",
     "latent_need_reason": "latent_need_reason.keyword",
     "match_info": "match_info.keyword",
+    "cs_key_action": "cs_key_action.keyword",
 }
 DISTRIBUTION_SPECS = [
     {
@@ -213,6 +227,8 @@ SYSTEM_PROMPT = """
 - scene_event: 事件类型
 - customer_key_appeal: 用户核心诉求
 - customer_key_appeal.keyword: 用户核心诉求精确聚合字段
+- cs_key_action: 客服关键处理动作
+- cs_key_action.keyword: 客服关键处理动作精确聚合字段
 - content: 反馈内容
 - content.keyword: 反馈内容精确聚合字段
 - province_name: 省份
@@ -226,6 +242,12 @@ SYSTEM_PROMPT = """
 - match_info: 比赛信息原始文本
 - match_label: 比赛信息解析后的场次标签
 - biz_member_cluster: 涉及业务/会员类型聚类
+- label_group: 标签组
+- marketing_activity_page: 营销活动页面名称
+- marketing_activity_match_status: 营销活动匹配状态
+- marketing_activity_match_keywords: 营销活动匹配关键词
+- age: 年龄
+- gender: 性别
 - duration_minutes: 服务时间到截止时间的耗时，单位分钟
 - time_period: 时段
 
@@ -250,7 +272,8 @@ SYSTEM_PROMPT = """
 11. 趋势、峰值、异动、date_histogram 类问题必须使用 service_time 的 date_histogram，并在每个日期桶下聚合 primary_labels、secondary_labels、tertiary_labels，便于判断峰值日主要问题。
 12. 对 customer_key_appeal、content 做 terms 聚合或排序时，必须使用 customer_key_appeal.keyword、content.keyword。
 13. 运营举措、会员类型、隐性需求、比赛信息类问题优先使用 operation_action、biz_member_cluster、latent_need.keyword、match_label。
-14. 只输出 JSON，不要输出 Markdown 或解释性正文。
+14. 营销活动页面、营销活动匹配状态、营销活动关键词、年龄、性别类问题优先使用 marketing_activity_page、marketing_activity_match_status、marketing_activity_match_keywords、age、gender。
+15. 只输出 JSON，不要输出 Markdown 或解释性正文。
 """.strip()
 
 
@@ -858,11 +881,18 @@ class ESQueryBuilder:
             (("emotion", "情绪"), "scene_emotion"),
             (("province", "省份", "地区", "地域"), "province_name"),
             (("appeal", "诉求"), "customer_key_appeal.keyword"),
+            (("cs_action", "客服动作", "处理动作", "客服处理"), "cs_key_action.keyword"),
             (("operation", "运营", "活动", "举措"), "operation_action"),
+            (("marketing", "营销", "页面"), "marketing_activity_page"),
+            (("match_status", "匹配状态"), "marketing_activity_match_status"),
+            (("keyword", "关键词"), "marketing_activity_match_keywords"),
             (("member", "cluster", "会员", "聚类"), "biz_member_cluster"),
             (("latent", "隐性", "潜在"), "latent_need.keyword"),
             (("match", "比赛", "赛事"), "match_label"),
             (("period", "时段"), "time_period"),
+            (("age", "年龄"), "age"),
+            (("gender", "性别"), "gender"),
+            (("label_group", "标签组"), "label_group"),
         ]
         for markers, field in hints:
             if any(marker in lowered or marker in agg_name for marker in markers):

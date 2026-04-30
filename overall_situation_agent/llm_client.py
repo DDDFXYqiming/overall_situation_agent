@@ -30,35 +30,48 @@ class OpenAICompatibleClient:
         self.model = settings.llm_model
         self.timeout = settings.llm_timeout_seconds
         self.max_retries = settings.llm_max_retries
+        self.report_timeout = settings.llm_report_timeout_seconds
+        self.report_max_retries = settings.llm_report_max_retries
+        self.report_max_tokens = settings.llm_report_max_tokens
+        self.report_enabled = settings.llm_report_enabled
 
     @property
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    def chat(self, messages: list[dict[str, str]], temperature: float = 0.1) -> LLMResponse:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.1,
+        timeout_seconds: int | float | None = None,
+        max_retries: int | None = None,
+        max_tokens: int | None = None,
+    ) -> LLMResponse:
         if not self.enabled:
             return LLMResponse(content="", used_fallback=True)
 
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": False,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
+        request_body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": False,
+        }
+        if max_tokens is not None and max_tokens > 0:
+            request_body["max_tokens"] = max_tokens
+        payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
         url = f"{self.base_url}/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
+        timeout = self.timeout if timeout_seconds is None else timeout_seconds
+        retries = self.max_retries if max_retries is None else max(0, max_retries)
         last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(retries + 1):
             try:
                 request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
                     raw = json.loads(response.read().decode("utf-8"))
                 content = raw["choices"][0]["message"]["content"]
                 logger.info("LLM call succeeded model=%s attempt=%s", self.model, attempt + 1)
@@ -73,7 +86,7 @@ class OpenAICompatibleClient:
             ) as exc:
                 last_error = exc
                 logger.warning("LLM call failed attempt=%s error=%s", attempt + 1, exc)
-                if attempt < self.max_retries:
+                if attempt < retries:
                     time.sleep(1.5 * (attempt + 1))
 
         logger.error("LLM unavailable after retries: %s", last_error)

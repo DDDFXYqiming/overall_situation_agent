@@ -18,11 +18,14 @@ from .report import (
     _safe_ratio,
     _selected_daily_rows,
     _source_files_text,
+    _sorted_anomaly_days,
     _sum_counts,
     _trend_chart_summary,
     _trend_insights,
     _trend_voice_items,
     _trend_voice_summary,
+    _unlabeled_dist_lines,
+    _unlabeled_trend_lines,
 )
 
 
@@ -56,6 +59,13 @@ def _paragraphs(lines: list[str] | None, fallback: list[str] | None = None) -> s
     return "\n\n".join(_text(line) for line in selected)
 
 
+def _unlabeled_md_block(lines: list[str], title: str = "未标注一二三级标签工单分析") -> str:
+    if not lines:
+        return ""
+    body = "\n\n".join(_text(line) for line in lines)
+    return f"#### {title}\n\n{body}"
+
+
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
     if not rows:
         return "暂无可展示数据。"
@@ -86,6 +96,23 @@ def _duration_text(value: Any) -> str:
     if isinstance(value, (int, float)) and not math.isnan(float(value)):
         return f"{float(value):.1f} 分钟"
     return "未覆盖"
+
+
+def _maybe_tag_row(label: str, items: list[dict], limit: int = 5) -> list[Any] | None:
+    if not any(item.get("count", 0) > 0 for item in items):
+        return None
+    return [label, _tag_counts(items, limit=limit)]
+
+
+def _compact_rows(rows: list[list[Any] | None]) -> list[list[Any]]:
+    return [row for row in rows if row]
+
+
+def _optional_table(title: str, headers: list[str], rows: list[list[Any] | None]) -> str:
+    compacted = _compact_rows(rows)
+    if not compacted:
+        return ""
+    return f"**{title}**\n\n{_table(headers, compacted)}"
 
 
 def _drilldown_markdown(items: list[dict], total: int) -> str:
@@ -207,26 +234,10 @@ def _case_markdown(result: dict) -> str:
                     item.get("key", "未标注"),
                     _n(item.get("count", 0)),
                     sample.get("appeal") or "无",
-                    sample.get("operation_action") or "无",
-                    sample.get("biz_member_cluster") or "无",
-                    sample.get("latent_need") or "无",
                     _truncate(sample.get("content_excerpt"), 120),
                 ]
             )
-    for item in result.get("operation_need_examples", [])[:2]:
-        for sample in item.get("samples", [])[:1]:
-            rows.append(
-                [
-                    item.get("key", "未标注"),
-                    _n(item.get("count", 0)),
-                    sample.get("appeal") or "无",
-                    sample.get("operation_action") or "无",
-                    sample.get("biz_member_cluster") or "无",
-                    sample.get("latent_need") or "无",
-                    _truncate(sample.get("content_excerpt"), 120),
-                ]
-            )
-    return _table(["案例来源", "关联量", "诉求", "运营举措", "会员类型", "隐性需求", "样例摘要"], rows[:4])
+    return _table(["三级问题", "关联量", "客户诉求", "样例摘要"], rows[:4])
 
 
 def _matchday_text(day: dict) -> str:
@@ -261,7 +272,7 @@ def _anomaly_table(anomalies: list[dict]) -> str:
     if not anomalies:
         return "当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。"
     rows = []
-    for day in anomalies:
+    for day in _sorted_anomaly_days(anomalies):
         rows.append(
             [
                 day.get("date"),
@@ -269,10 +280,18 @@ def _anomaly_table(anomalies: list[dict]) -> str:
                 _pct(float(day.get("day_over_day_growth", 0))),
                 _pct(float(day.get("negative_ratio", 0))),
                 _matchday_text(day),
+                _tag_counts(day.get("top_primary", []), limit=2),
+                _tag_counts(day.get("top_secondary", []), limit=2),
                 _tag_counts(day.get("top_tertiary", []), limit=3),
+                f"服务类型：{_tag_counts(day.get('top_service_type', []), limit=2)}；涉及业务/会员类型：{_tag_counts(day.get('top_member_cluster', []), limit=2)}",
             ]
         )
-    return _table(["日期", "问题量", "日环比", "负向占比", "赛事日", "主要三级问题"], rows)
+    method = (
+        "异动口径：按服务时间 service_time 做日粒度聚合，日环比 >= 50% 且当日问题量 >= 5 件记为异动日；"
+        "排序逻辑为日环比降序，其次问题量降序，其次日期升序。"
+    )
+    table = _table(["日期", "问题量", "日环比", "负向占比", "赛事日", "主要一级问题", "主要二级问题", "主要三级问题", "业务维度热点"], rows)
+    return f"{method}\n\n{table}"
 
 
 def _simple_distribution_table(title: str, items: list[dict], original_chart: str, limit: int = 10) -> str:
@@ -313,7 +332,8 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
     section_focus = query.get("section_focus") or "full"
     trend_view = _build_trend_view(result.get("daily", []), result.get("filters", {}), result.get("anomalies", []))
     narratives: dict[str, list[str]] = result.get("narratives") or {}
-    total = int(result.get("total", 0) or 0)
+    labeled_total = int(result.get("total", 0) or 0)
+    total = int(result.get("total_with_unlabeled", labeled_total) or 0)
     period_start = result.get("period", {}).get("min") or result.get("filters", {}).get("start_date") or "未限定"
     period_end = result.get("period", {}).get("max") or result.get("filters", {}).get("end_date") or "未限定"
     primary_total = _sum_counts(result.get("primary", []))
@@ -340,17 +360,6 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
         _paragraphs(narratives.get("executive_summary"), _distribution_insights(result)[:3]),
     ]
 
-    if query.get("question") or query.get("note"):
-        sections.append(
-            "\n".join(
-                [
-                    "### 本次查询",
-                    f"- 本次提问：{_text(query.get('question') or '未提供')}",
-                    f"- 查询说明：{_query_note_text(query, section_focus)}",
-                ]
-            )
-        )
-
     if section_focus in {"distribution", "full"}:
         sections.extend(
             [
@@ -358,6 +367,7 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 "### 1.1 问题分布概览",
                 "#### 分析结论",
                 _paragraphs(narratives.get("distribution_conclusion"), _distribution_insights(result)),
+                _unlabeled_md_block(narratives.get("unlabeled_distribution_summary") or _unlabeled_dist_lines(result)),
                 "#### 一级问题概览",
                 _chart_note("一级标签类型分布饼状图"),
                 _paragraphs(narratives.get("primary_overview")),
@@ -370,34 +380,12 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 _chart_note("三级标签类型分布饼状图及 TOP5 三级问题柱状图", "数据表"),
                 _paragraphs(narratives.get("tertiary_overview")),
                 _rank_table(result.get("tertiary", []), tertiary_total, "三级标签"),
-                "#### 各级标签下钻关系",
-                _chart_note("各级标签下钻关系复杂表格", "分层列表"),
-                _drilldown_markdown(result.get("primary_secondary_tertiary", []), primary_total),
                 "#### 三级问题原因线索",
                 _chart_note("原因线索卡片与样例原声卡片", "简化数据表与摘要"),
                 _paragraphs(narratives.get("cause_summary")),
                 _cause_table(result.get("top_tertiary_examples", [])),
-                "#### 样例原声与原因研判",
+                "#### 样例原声与典型案例",
                 _paragraphs(narratives.get("voice_summary")),
-                "#### 问题链路归因",
-                _paragraphs(narratives.get("journey_summary")),
-                _table(
-                    ["维度", "结果"],
-                    [
-                        ["洞察维度", _tag_counts(result.get("insight_dimension", []), limit=5)],
-                        ["时段分布", _tag_counts(result.get("time_period", []), limit=5)],
-                        ["省份信息", _tag_counts(result.get("province", []), limit=5)],
-                        ["平均处理耗时", _duration_text(result.get("avg_duration_minutes"))],
-                    ],
-                ),
-                "#### 运营举措与隐性诉求",
-                _paragraphs(narratives.get("operation_need_summary")),
-                _operation_need_table(result.get("operation_need_examples", [])),
-                _latent_need_table(result.get("latent_need_examples", [])),
-                "#### 会员类型聚类",
-                _paragraphs(narratives.get("member_cluster_summary")),
-                _member_cluster_table(result.get("member_cluster_examples", [])),
-                "#### 典型案例",
                 _paragraphs(narratives.get("case_summary")),
                 _case_markdown(result),
             ]
@@ -411,17 +399,11 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 "### 1.2 投诉趋势与异动表现",
                 "#### 分析结论",
                 _paragraphs(narratives.get("trend_conclusion"), _trend_insights(result, trend_view)),
+                _unlabeled_md_block(narratives.get("unlabeled_trend_summary") or _unlabeled_trend_lines(result), title="未标注一二三级标签工单时间趋势"),
                 "#### 每日趋势分析",
                 _chart_note("每日问题提及量与负向情绪占比双轴折线图", "趋势描述和每日明细表"),
                 _paragraphs(trend_summary),
                 f"**趋势窗口**：{trend_window_note}",
-                "**每日明细表（重点日期）**：为避免长日表淹没结论，本表默认展示峰值日、负向占比最高日、明显异动日及问题量靠前日期。",
-                _daily_table(_selected_daily_rows(trend_view.get("days", []), trend_view.get("anomalies", []))),
-                "#### 情绪与风险分布",
-                _simple_distribution_table("情绪分布", result.get("emotion", []), "情绪分布横向柱状图"),
-                _simple_distribution_table("服务类型", result.get("service_type", []), "服务类型标签组"),
-                _simple_distribution_table("退费诉求", result.get("refund", []), "退费诉求标签组"),
-                _simple_distribution_table("升级投诉倾向", result.get("escalation", []), "升级投诉倾向标签组"),
                 "#### 赛事日样例原声",
                 _chart_note("赛事日样例原声卡片", "文本摘要列表"),
                 _trend_voice_markdown(trend_view, narratives),
@@ -431,25 +413,6 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 _anomaly_table(trend_view.get("anomalies", [])),
             ]
         )
-
-    sections.extend(
-        [
-            "---",
-            "### 口径说明",
-            _table(
-                ["口径", "说明"],
-                [
-                    ["数据来源", f"{_source_files_text(result.get('source_files', []))} 已导入 Elasticsearch，并通过聚合查询生成。"],
-                    ["适用范围", _analysis_type_text(section_focus)],
-                    ["负向情绪", "当前以“愤怒、失望、焦虑、不满、烦躁”作为负向情绪集合。"],
-                    ["赛事日标注", _matchday_note(result, trend_view)],
-                    ["趋势窗口", trend_window_note],
-                    ["多标签统计", "一级、二级、三级及业务等多值字段按分隔符拆分后聚合，因此同一工单可贡献到多个标签桶。"],
-                    ["用户属性字段", "当前新增表头包含省份、服务时间、时段、处理耗时、会员类型聚类等基础信息；未包含终端型号、App 版本字段，报告不做该维度推断。"],
-                ],
-            ),
-        ]
-    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")

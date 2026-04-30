@@ -805,6 +805,102 @@ def _tag_text(items: list[dict], limit: int = 3) -> str:
     return "、".join(f"{item.get('key', '未标注')}（{_n(item.get('count', 0))}）" for item in visible) or "无"
 
 
+def _tag_key_text(items: list[dict], limit: int = 3) -> str:
+    visible = [item for item in items if item.get("count", 0) > 0][:limit]
+    return "、".join(str(item.get("key", "未标注")) for item in visible if item.get("key")) or "无"
+
+
+def _sorted_anomaly_days(anomalies: list[dict]) -> list[dict]:
+    return sorted(
+        anomalies,
+        key=lambda item: (
+            -float(item.get("day_over_day_growth") or 0),
+            -int(item.get("count") or 0),
+            str(item.get("date") or ""),
+        ),
+    )
+
+
+def _business_dimension_lines(result: dict) -> list[str]:
+    service_type = result.get("service_type", [])
+    service_total = _sum_counts(service_type)
+    member_cluster = result.get("biz_member_cluster", [])
+    tertiary = result.get("tertiary", [])
+    if not service_total and not member_cluster:
+        return []
+
+    lines: list[str] = []
+    if service_type and service_total:
+        top = service_type[0]
+        lines.append(
+            f"业务维度上，服务类型「{top.get('key', '未标注')}」占比 {_pct(_safe_ratio(top.get('count', 0), service_total))}，"
+            f"高频服务类型集中在 {_tag_text(service_type, 3)}。"
+        )
+    if member_cluster or tertiary:
+        lines.append(
+            f"结合涉及业务/会员类型，热点集中在 {_tag_text(member_cluster, 3)}，"
+            f"对应三级痛点主要是 {_tag_text(tertiary, 3)}。"
+        )
+    return lines
+
+
+def _trend_matchday_business_lines(result: dict, trend_view: dict[str, Any]) -> list[str]:
+    days = trend_view.get("days", [])
+    if not days:
+        return []
+
+    schedule = _schedule_status(result)
+    matchdays = [day for day in days if _matchday(day)]
+    non_matchdays = [day for day in days if not _matchday(day)]
+    peak = max(days, key=lambda item: item.get("count", 0), default=None)
+    lines: list[str] = []
+
+    if schedule.get("status") == "loaded":
+        source_name = schedule.get("source_name") or "赛程文件"
+        if matchdays and non_matchdays:
+            matchday_avg = sum(day.get("count", 0) for day in matchdays) / len(matchdays)
+            non_matchday_avg = sum(day.get("count", 0) for day in non_matchdays) / len(non_matchdays)
+            lines.append(
+                f"已加载赛程文件《{source_name}》；当前趋势窗口内赛事日日均问题量 {matchday_avg:.1f} 件，"
+                f"非赛事日日均 {non_matchday_avg:.1f} 件，用于判断比赛日是否放大投诉波动。"
+            )
+        elif matchdays:
+            matchday_total = sum(day.get("count", 0) for day in matchdays)
+            lines.append(
+                f"已加载赛程文件《{source_name}》；当前趋势窗口命中 {len(matchdays)} 个赛事日，"
+                f"赛事日合计问题量 {_n(matchday_total)} 件。"
+            )
+        else:
+            lines.append(f"已加载赛程文件《{source_name}》，但当前趋势窗口未命中赛事日。")
+    else:
+        lines.append(str(schedule.get("message") or "未提供赛程文件，1.2 未标注赛事日。"))
+
+    if peak:
+        match_text = _matchday_summary(peak) if _matchday(peak) else "非赛事日"
+        lines.append(
+            f"峰值日 {peak.get('date')} 问题量 {_n(peak.get('count', 0))} 件，赛事日标注为{match_text}；"
+            f"当日一级问题为 {_tag_text(peak.get('top_primary', []), 2)}，二级问题为 {_tag_text(peak.get('top_secondary', []), 2)}，"
+            f"三级问题为 {_tag_text(peak.get('top_tertiary', []), 3)}。"
+        )
+        lines.append(
+            f"峰值日业务热点集中在服务类型 {_tag_text(peak.get('top_service_type', []), 2)}，"
+            f"涉及业务/会员类型为 {_tag_text(peak.get('top_member_cluster', []), 2)}。"
+        )
+    return lines
+
+
+def _chip_row(label: str, items: list[dict], limit: int = 5) -> str:
+    visible = [item for item in items if item.get("count", 0) > 0][:limit]
+    if not visible:
+        return ""
+    return f'<div class="risk-row"><span>{_e(label)}</span><div class="chip-cloud">{_tags(visible)}</div></div>'
+
+
+def _chip_rows(rows: list[tuple[str, list[dict], int]]) -> str:
+    html = "".join(_chip_row(label, items, limit) for label, items, limit in rows)
+    return f'<div class="risk-stack">{html}</div>' if html else ""
+
+
 def _simple_table(headers: list[str], rows: list[list[Any]], empty_text: str = "暂无可展示数据。") -> str:
     if not rows:
         return f'<p class="subtle">{_e(empty_text)}</p>'
@@ -840,15 +936,13 @@ def _summary_card(title: str, kicker: str, lines: list[str], items: list[dict]) 
 
 def _executive_summary_section(result: dict, narratives: dict[str, list[str]], trend_view: dict[str, Any]) -> str:
     lines = narratives.get("executive_summary") or _distribution_insights(result)[:3]
-    peak = max(trend_view.get("days", []), key=lambda item: item.get("count", 0), default=None)
-    peak_items = peak.get("top_tertiary", []) if peak else []
     return f"""
     <section class="report-section" data-reveal="section" data-lazy="section">
       <div class="section-label"><span class="pulse-dot"></span><strong>SUMMARY</strong></div>
       <div class="section-heading">
         <div>
           <h2>核心摘要</h2>
-          <p>把领导关注的核心问题、风险诉求、运营举措、会员聚类和异动节点前置，便于第一眼判断本报告重点。</p>
+          <p>围绕 1.1 问题分布和 1.2 投诉趋势前置关键结论，便于快速判断本报告重点。</p>
         </div>
       </div>
       <div class="analysis-box analysis-box-gradient" data-reveal="card">
@@ -857,12 +951,6 @@ def _executive_summary_section(result: dict, narratives: dict[str, list[str]], t
           <h3>先看结论</h3>
         </div>
         {_narrative_stack(lines)}
-      </div>
-      <div class="grid chart-grid">
-        {_summary_card("核心问题链路", "ISSUE CHAIN", narratives.get("journey_summary") or [], result.get("tertiary", [])[:5])}
-        {_summary_card("运营举措与隐性诉求", "OPERATION & NEED", narratives.get("operation_need_summary") or [], result.get("operation_action", [])[:5])}
-        {_summary_card("会员类型聚类", "MEMBER CLUSTER", narratives.get("member_cluster_summary") or [], result.get("biz_member_cluster", [])[:5])}
-        {_summary_card("峰值与异动节点", "PEAK & ANOMALY", _trend_insights(result, trend_view)[:2], peak_items)}
       </div>
     </section>
     """
@@ -928,23 +1016,6 @@ def _case_cards(result: dict) -> str:
                     "content": sample.get("content_excerpt", ""),
                     "meta": [
                         sample.get("appeal"),
-                        sample.get("operation_action"),
-                        sample.get("biz_member_cluster"),
-                        sample.get("latent_need"),
-                    ],
-                }
-            )
-    for item in result.get("operation_need_examples", [])[:2]:
-        for sample in item.get("samples", [])[:1]:
-            cases.append(
-                {
-                    "title": item.get("key", "运营举措"),
-                    "count": item.get("count", 0),
-                    "content": sample.get("content_excerpt", ""),
-                    "meta": [
-                        sample.get("appeal"),
-                        sample.get("latent_need"),
-                        sample.get("biz_member_cluster"),
                     ],
                 }
             )
@@ -992,8 +1063,10 @@ def _supporting_quotes(items: list[dict], limit: int = 3) -> str:
 def _compact_anomaly_cards(anomalies: list[dict]) -> str:
     if not anomalies:
         return '<div class="analysis-box" data-reveal="card"><strong>异动判断</strong><p>当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。</p></div>'
+    sorted_days = _sorted_anomaly_days(anomalies)
     rows = []
-    for day in anomalies[:3]:
+    for day in sorted_days:
+        match_text = _matchday_summary(day) if _matchday(day) else "非赛事日"
         rows.append(
             f"""
             <article class="signal-card signal-card-compact" data-reveal="item">
@@ -1001,11 +1074,17 @@ def _compact_anomaly_cards(anomalies: list[dict]) -> str:
                 <strong>{_e(day["date"])}</strong>
                 <span class="signal-chip">日环比 {_pct(day.get("day_over_day_growth", 0))}</span>
               </div>
-              <p>{_matchday_summary(day) or '非赛事日'}；问题量 {_n(day["count"])} 件；主要问题：{"、".join(item["key"] for item in day.get("top_tertiary", [])[:2]) or '无'}。</p>
+              <p>问题量 {_n(day["count"])} 件；负向占比 {_pct(day.get("negative_ratio", 0))}；赛事日标注：{_e(match_text)}。</p>
+              <p>主要一级问题：{_e(_tag_text(day.get("top_primary", []), 2))}；主要二级问题：{_e(_tag_text(day.get("top_secondary", []), 2))}；主要三级问题：{_e(_tag_text(day.get("top_tertiary", []), 3))}。</p>
+              <p>业务热点：服务类型 {_e(_tag_text(day.get("top_service_type", []), 2))}；涉及业务/会员类型 {_e(_tag_text(day.get("top_member_cluster", []), 2))}。</p>
             </article>
             """
         )
-    return f'<div class="signal-grid">{"".join(rows)}</div>'
+    method = (
+        "异动口径：按服务时间 service_time 做日粒度聚合，日环比 >= 50% 且当日问题量 >= 5 件记为异动日。"
+        "排序逻辑：日环比降序，其次问题量降序，其次日期升序；以下列出全部异动日。"
+    )
+    return f'<div class="narrative-stack"><p>{_e(method)}</p></div><div class="signal-grid">{"".join(rows)}</div>'
 
 
 def _trend_chart_summary(trend_view: dict[str, Any]) -> list[str]:
@@ -1166,7 +1245,10 @@ def _legacy_overview_table(title: str, kicker: str, items: list[dict], total: in
 
 
 def _distribution_insights(result: dict) -> list[str]:
-    total = result.get("total", 0)
+    labeled_total = result.get("total", 0)
+    total = result.get("total_with_unlabeled", labeled_total)
+    unlabeled_analysis = result.get("unlabeled_analysis", {})
+    unlabeled_total = unlabeled_analysis.get("unlabeled_total", 0)
     primary = result.get("primary", [])
     secondary = result.get("secondary", [])
     tertiary = result.get("tertiary", [])
@@ -1174,12 +1256,14 @@ def _distribution_insights(result: dict) -> list[str]:
     secondary_total = _sum_counts(secondary)
     tertiary_total = _sum_counts(tertiary)
     insights = []
-    if not total:
+    if not total and not unlabeled_total:
         return ["当前筛选周期内未检索到可统计的工单数据。"]
+    if not labeled_total:
+        return ["当前筛选周期内没有可纳入主分布统计的已标注工单；未标注工单已单独展示。"]
     if primary:
         top = primary[0]
         insights.append(
-            f"本周期纳入 {total} 条反馈/投诉记录；一级问题中「{top['key']}」提及 {top['count']} 次，占一级标签提及量的 {_pct(_safe_ratio(top['count'], primary_total))}。"
+            f"本周期共纳入 {total} 条反馈/投诉工单；一级问题中「{top['key']}」提及 {top['count']} 次，占一级标签提及量的 {_pct(_safe_ratio(top['count'], primary_total))}，标签分布基于已完成标注的工单统计。"
         )
     if secondary:
         top_secondary = secondary[0]
@@ -1191,6 +1275,7 @@ def _distribution_insights(result: dict) -> list[str]:
         insights.append(
             f"三级问题 TOP5 累计提及 {top5_count} 次，占三级标签提及量的 {_pct(_safe_ratio(top5_count, tertiary_total))}；首要痛点为「{tertiary[0]['key']}」。"
         )
+    insights.extend(_business_dimension_lines(result))
     refund_yes = next((item["count"] for item in result.get("refund", []) if item["key"] == "是"), 0)
     escalation_yes = next((item["count"] for item in result.get("escalation", []) if item["key"] == "是"), 0)
     insights.append(f"风险信号方面，退费诉求 {refund_yes} 件、升级投诉倾向 {escalation_yes} 件，建议与 TOP 问题联动定位影响面。")
@@ -1218,11 +1303,12 @@ def _trend_insights(result: dict, trend_view: dict[str, Any]) -> list[str]:
             "当前以负向占比替代模板中的负向情绪指数。"
         ),
     ]
+    insights.extend(_trend_matchday_business_lines(result, trend_view))
     if anomalies:
-        first = anomalies[0]
+        first = _sorted_anomaly_days(anomalies)[0]
         match_note = _matchday_summary(first)
         insights.append(
-            f"识别到 {len(anomalies)} 个明显异动日，首个异动日为 {first['date']}"
+            f"识别到 {len(anomalies)} 个明显异动日，增幅最高异动日为 {first['date']}"
             f"{'，该日为' + match_note if match_note else ''}，日环比 {_pct(first.get('day_over_day_growth', 0))}。"
         )
     else:
@@ -1232,13 +1318,84 @@ def _trend_insights(result: dict, trend_view: dict[str, Any]) -> list[str]:
             f"为保证折线图可读性，1.2 图表聚焦主分析时段 {trend_view['start']} 至 {trend_view['end']}；"
             f"此前零散活跃日共 {trend_view['trimmed_active_days']} 个、{trend_view['trimmed_count']} 件，未纳入折线图。"
         )
-    insights.append(_matchday_note(result, trend_view))
     return insights
+
+
+def _unlabeled_dist_lines(result: dict) -> list[str]:
+    unlabeled_analysis = result.get("unlabeled_analysis", {})
+    unlabeled_total = unlabeled_analysis.get("unlabeled_total", 0)
+    if not unlabeled_total:
+        return []
+    total_with_unlabeled = result.get("total_with_unlabeled", result.get("total", 0))
+    unlabeled_pct = _pct(_safe_ratio(unlabeled_total, total_with_unlabeled))
+    emotion = unlabeled_analysis.get("emotion", [])
+    csp_name = unlabeled_analysis.get("csp_name", [])
+    customer_key_appeal = unlabeled_analysis.get("customer_key_appeal", [])
+    refund_demand = next((item["count"] for item in unlabeled_analysis.get("has_refund_demand", []) if item["key"] == "是"), 0)
+    escalation = next((item["count"] for item in unlabeled_analysis.get("has_escalation", []) if item["key"] == "是"), 0)
+    lines = [
+        f"本次共纳入 {total_with_unlabeled} 条工单，其中 {unlabeled_total} 条（{unlabeled_pct}）一/二/三级标签未标注，已从问题分布统计中排除。",
+    ]
+    if emotion or customer_key_appeal or csp_name:
+        lines.append(
+            f"从未标注工单的内容结构看，情绪以 {_tag_text(emotion, 2)} 为主，诉求集中在 {_tag_text(customer_key_appeal, 2)}，主要渠道/终端线索为 {_tag_text(csp_name, 2)}。"
+        )
+    if refund_demand or escalation:
+        lines.append(f"风险上存在退费诉求 {refund_demand} 件、升级投诉倾向 {escalation} 件，建议优先回补标签后再并入主问题池复盘。")
+    return lines[:4]
+
+
+def _unlabeled_trend_lines(result: dict) -> list[str]:
+    unlabeled_trend = result.get("unlabeled_trend_analysis", {})
+    unlabeled_total = unlabeled_trend.get("unlabeled_total", 0)
+    if not unlabeled_total:
+        return []
+    total_with_unlabeled = result.get("total_with_unlabeled", result.get("total", 0))
+    unlabeled_pct = _pct(_safe_ratio(unlabeled_total, total_with_unlabeled))
+    unlabeled_daily = unlabeled_trend.get("daily", [])
+    unlabeled_peak = unlabeled_trend.get("peak_day")
+    unlabeled_emotion_peak = unlabeled_trend.get("emotion_peak_day")
+    lines = [
+        f"本周期共 {unlabeled_total} 条一/二/三级标签未标注工单，占原始总量的 {unlabeled_pct}，未纳入上述趋势计算。",
+    ]
+    if unlabeled_daily:
+        date_range = f"{unlabeled_daily[0]['date']} 至 {unlabeled_daily[-1]['date']}"
+        if unlabeled_peak:
+            lines.append(f"时间上覆盖 {date_range}；峰值出现在 {unlabeled_peak['date']}（{unlabeled_peak['count']} 件），建议核查当日是否存在批量活动咨询、权益问题或导入漏标。")
+        else:
+            lines.append(f"时间上覆盖 {date_range}，建议作为独立漏标趋势跟踪。")
+    if unlabeled_emotion_peak:
+        lines.append(f"情绪高峰出现在 {unlabeled_emotion_peak['date']}，负向情绪占比 {_pct(unlabeled_emotion_peak['negative_ratio'])}，可优先抽样校验该日未标注文本的真实问题类型。")
+    if unlabeled_daily and len(unlabeled_daily) > 1:
+        first_half = unlabeled_daily[:len(unlabeled_daily)//2]
+        second_half = unlabeled_daily[len(unlabeled_daily)//2:]
+        first_avg = sum(d['count'] for d in first_half) / len(first_half) if first_half else 0
+        second_avg = sum(d['count'] for d in second_half) / len(second_half) if second_half else 0
+        if second_avg > first_avg * 1.5:
+            lines.append("趋势上后半周期明显抬升，提示后续导入或标注流程可能出现阶段性漏标。")
+        elif first_avg > second_avg * 1.5:
+            lines.append("趋势上前半周期更集中，后半周期有所回落，建议核对早期批次的标签抽取规则。")
+    return lines[:4]
 
 
 def _insight_list(items: list[str], dark: bool = False) -> str:
     cls = "insights insights-dark" if dark else "insights"
     return f'<ul class="{cls}">{"".join(f"<li>{item}</li>" for item in items)}</ul>'
+
+
+def _unlabeled_card_html(lines: list[str], title: str = "未标注一二三级标签工单分析") -> str:
+    if not lines:
+        return ""
+    html_lines = "".join(f"<li>{_e(line)}</li>" for line in lines)
+    return f"""
+    <div class="unlabeled-card" data-reveal="card">
+      <div class="unlabeled-card-header">
+        <span class="chart-kicker">UNLABELED</span>
+        <h3>{_e(title)}</h3>
+      </div>
+      <ul class="insights">{html_lines}</ul>
+    </div>
+    """
 
 
 def _scope_strip(analysis: str, display: str, calc: str, dark: bool = False) -> str:
@@ -1309,8 +1466,8 @@ def _hero_signal(section_focus: str, total: int, peak_day: dict[str, Any] | None
 def _hero_issue(section_focus: str, top_primary: dict | None, top_tertiary: dict | None, anomalies: list[dict]) -> tuple[str, str, str]:
     if section_focus == "trend":
         if anomalies:
-            first = anomalies[0]
-            return "ANOMALY", _e(first["date"][5:]), f"首个明显异动日，日环比 {_pct(first.get('day_over_day_growth', 0))}"
+            first = _sorted_anomaly_days(anomalies)[0]
+            return "ANOMALY", _e(first["date"][5:]), f"最高增幅异动日，日环比 {_pct(first.get('day_over_day_growth', 0))}"
         return "ANOMALY", "无", "当前未识别到明显异动日"
     if section_focus == "distribution":
         primary_name = _e(top_primary["key"]) if top_primary else "无"
@@ -1365,7 +1522,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     secondary_total = _sum_counts(result.get("secondary", []))
     tertiary_total = _sum_counts(result.get("tertiary", []))
     peak_day = max(trend_view.get("days", []), key=lambda day: day["count"], default=None)
-    total = result.get("total", 0)
+    total = result.get("total_with_unlabeled", result.get("total", 0))
     source_text = _source_files_text(result.get("source_files", []))
     schedule = _schedule_status(result)
     narratives = result.get("narratives") or {}
@@ -1381,28 +1538,10 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     issue_label, issue_value, issue_desc = _hero_issue(section_focus, top_primary, top_tertiary, trend_view.get("anomalies", []))
     kpis = _build_kpis(section_focus, result, total, top_primary, top_tertiary, peak_day, trend_view)
 
-    question_line = f'<p class="subtle hero-meta">本次提问：{_e(query.get("question"))}</p>' if query.get("question") else ""
     analysis_line = f'<p class="subtle hero-meta">分析类型：{_e(analysis_type)}</p>'
-    plan_note = f'<p class="subtle hero-meta">查询说明：{_e(_query_note_text(query, section_focus))}</p>'
     trend_window_line = (
         f'<p class="subtle hero-meta">趋势主分析时段：{_e(trend_view["start"])} 至 {_e(trend_view["end"])}</p>'
         if trend_view.get("used_focus_window") and section_focus in {"trend", "full"}
-        else ""
-    )
-    query_section = (
-        f"""
-        <section class="chart-card chart-grid-wide" data-reveal="section" data-lazy="section">
-          <div class="chart-header">
-            <div>
-              <span class="chart-kicker">QUERY CONTEXT</span>
-              <h3>本次查询</h3>
-            </div>
-          </div>
-          {question_line or '<p class="subtle hero-meta">本次提问：未提供</p>'}
-          {plan_note}
-        </section>
-        """
-        if query.get("question") or query.get("note")
         else ""
     )
     trend_window_note = (
@@ -1438,11 +1577,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
           <p>快速定位本周期最集中的用户痛点，判断哪一类问题需要优先投入资源解决。</p>
         </div>
       </div>
-      {_scope_strip(
-          "统计本周期相关问题的总量、一级/二级/三级标签分布、标签下钻关系和高频原因线索。",
-          "图表（一级/二级/三级标签饼图、TOP5 三级问题柱状图）+ 标签下钻表 + 分析结论。",
-          "通过 Elasticsearch 对 primary_labels、secondary_labels、tertiary_labels 做分层聚合，并按“一级→二级→三级”路径展开对应关系。",
-      )}
       <div class="analysis-box analysis-box-gradient" data-reveal="card">
         <div class="analysis-header">
           <span class="chart-kicker">INSIGHT</span>
@@ -1450,54 +1584,18 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         </div>
         {_narrative_stack(narratives.get("distribution_conclusion") or _distribution_insights(result))}
       </div>
+      {_unlabeled_card_html(narratives.get("unlabeled_distribution_summary") or _unlabeled_dist_lines(result))}
       <div class="grid chart-grid">
         {_donut_chart(result.get("primary", []), "一级标签类型分布", "一级标签提及量")}
         {_donut_chart(result.get("secondary", []), "二级标签类型分布", "二级标签提及量")}
         {_donut_chart(result.get("tertiary", []), "三级标签类型分布", "三级标签提及量")}
         {_top_bar_chart(result.get("tertiary", []))}
       </div>
-      {_label_drilldown_table(result.get("primary_secondary_tertiary", []), primary_total)}
       <div class="section-stack chart-grid">
         {_overview_table("一级问题概览", "PRIMARY", result.get("primary", []), primary_total, narratives.get("primary_overview") or [primary_summary])}
         {_overview_table("二级问题概览", "SECONDARY", result.get("secondary", []), secondary_total, narratives.get("secondary_overview") or [secondary_summary])}
         {_overview_table("三级问题概览", "TERTIARY", result.get("tertiary", []), tertiary_total, narratives.get("tertiary_overview") or [tertiary_summary])}
       </div>
-      <section class="chart-card chart-grid-wide" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">ISSUE CHAIN</span>
-            <h3>问题链路归因</h3>
-          </div>
-        </div>
-        {_narrative_stack(narratives.get("journey_summary"))}
-        <div class="risk-stack">
-          <div class="risk-row"><span>洞察维度</span><div class="chip-cloud">{_tags(result.get("insight_dimension", [])) or '<span class="subtle">暂无可展示数据。</span>'}</div></div>
-          <div class="risk-row"><span>时段分布</span><div class="chip-cloud">{_tags(result.get("time_period", [])) or '<span class="subtle">暂无可展示数据。</span>'}</div></div>
-          <div class="risk-row"><span>省份信息</span><div class="chip-cloud">{_tags(result.get("province", [])[:6]) or '<span class="subtle">暂无可展示数据。</span>'}</div></div>
-          <div class="risk-row"><span>处理耗时</span><div class="chip-cloud"><span class="tag"><span class="tag-text">平均耗时</span><strong>{_e(avg_duration_text)}</strong></span></div></div>
-        </div>
-      </section>
-      <section class="chart-card chart-grid-wide" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">OPERATION & LATENT NEED</span>
-            <h3>运营举措与隐性诉求</h3>
-          </div>
-        </div>
-        {_narrative_stack(narratives.get("operation_need_summary"))}
-        {_operation_need_table(result.get("operation_need_examples", []))}
-        {_latent_need_table(result.get("latent_need_examples", []))}
-      </section>
-      <section class="chart-card chart-grid-wide" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">MEMBER CLUSTER</span>
-            <h3>会员类型聚类</h3>
-          </div>
-        </div>
-        {_narrative_stack(narratives.get("member_cluster_summary"))}
-        {_member_cluster_table(result.get("member_cluster_examples", []))}
-      </section>
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
           <div>
@@ -1510,20 +1608,12 @@ def render_html_report(result: dict, output_path: Path) -> Path:
       <section class="chart-card chart-grid-voice" data-reveal="card">
         <div class="chart-header">
           <div>
-            <span class="chart-kicker">USER VOICE</span>
-            <h3>样例原声与原因研判</h3>
+            <span class="chart-kicker">USER VOICE & CASE</span>
+            <h3>样例原声与典型案例</h3>
           </div>
         </div>
         {_narrative_stack(narratives.get("voice_summary"))}
         <div class="voice-grid">{_supporting_quotes(result.get("top_tertiary_examples", []))}</div>
-      </section>
-      <section class="chart-card chart-grid-voice" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">TYPICAL CASE</span>
-            <h3>典型案例</h3>
-          </div>
-        </div>
         {_narrative_stack(narratives.get("case_summary"))}
         {_case_cards(result)}
       </section>
@@ -1539,11 +1629,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
           <p>按日识别问题爆发的关键时间节点，结合赛事/事件线索解释异常波动的潜在原因。</p>
         </div>
       </div>
-      {_scope_strip(
-          "按日展示问题提及量和负向情绪指数的变化，标注赛事日。目的是识别问题爆发的关键时间节点，发现异常波动的潜在原因。",
-          "图表（折线图 - 每日问题提及量及负向情绪指数）+ 图表分析总结 + 赛事日样例原声。",
-          "通过 Elasticsearch 的 date_histogram 聚合统计各日期问题量趋势；活动日根据运行时传入的日历 Excel 按日期标注；当前无法严格计算负向情绪指数，使用负向情绪占比作为替代口径。",
-      )}
       <div class="analysis-box analysis-box-gradient" data-reveal="card">
         <div class="analysis-header">
           <span class="chart-kicker">TREND INSIGHT</span>
@@ -1551,6 +1636,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         </div>
         {_narrative_stack(narratives.get("trend_conclusion") or _trend_insights(result, trend_view))}
       </div>
+      {_unlabeled_card_html(narratives.get("unlabeled_trend_summary") or _unlabeled_trend_lines(result), title="未标注一二三级标签工单时间趋势")}
       {_trend_svg(trend_view.get("days", []), focus_note=trend_view.get("note"))}
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
@@ -1561,56 +1647,15 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         </div>
         {_narrative_stack(trend_chart_summary)}
       </section>
-      <div class="grid chart-grid">
-        <section class="chart-card" data-reveal="card">
-          <div class="chart-header">
-            <div>
-              <span class="chart-kicker">EMOTION</span>
-              <h3>情绪分布</h3>
-            </div>
-          </div>
-          {_bar_rows(result.get("emotion", []))}
-        </section>
-        <section class="chart-card" data-reveal="card">
-          <div class="chart-header">
-            <div>
-              <span class="chart-kicker">RISK</span>
-              <h3>服务类型与升级风险</h3>
-            </div>
-          </div>
-          <div class="risk-stack">
-            <div class="risk-row"><span>服务类型</span><div class="chip-cloud">{_tags(result.get("service_type", []))}</div></div>
-            <div class="risk-row"><span>退费诉求</span><div class="chip-cloud">{_tags(result.get("refund", []))}</div></div>
-            <div class="risk-row"><span>升级投诉倾向</span><div class="chip-cloud">{_tags(result.get("escalation", []))}</div></div>
-          </div>
-        </section>
-      </div>
       <section class="chart-card chart-grid-voice" data-reveal="card">
         <div class="chart-header">
           <div>
             <span class="chart-kicker">TREND VOICE</span>
-            <h3>样例原声与原因研判</h3>
+            <h3>赛事日用户原声</h3>
           </div>
         </div>
         {_narrative_stack(trend_voice_summary)}
         {_trend_voice_cards(trend_voice_items)}
-      </section>
-      <section class="chart-card" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">DAILY DETAIL</span>
-            <h3>日趋势明细（重点日期）</h3>
-          </div>
-        </div>
-        <p class="subtle">为避免长日表淹没结论，本表默认展示峰值日、负向占比最高日、明显异动日及问题量靠前日期；完整趋势仍以折线图和聚合结果为准。</p>
-        <div class="table-scroll">
-          <table class="data-table daily-table">
-            <thead>
-              <tr><th>日期</th><th>问题量</th><th>日环比</th><th>负向情绪量</th><th>负向占比</th><th>赛事日标注</th><th>当日 TOP 三级问题</th></tr>
-            </thead>
-            <tbody>{_daily_rows(daily_focus_rows)}</tbody>
-          </table>
-        </div>
       </section>
       <section class="chart-card" data-reveal="card">
         <div class="chart-header">
@@ -2031,6 +2076,33 @@ def render_html_report(result: dict, output_path: Path) -> Path:
       background: rgba(255,255,255,0.05);
       border-color: rgba(255,255,255,0.12);
       box-shadow: none;
+    }
+    .unlabeled-card {
+      margin-top: 18px;
+      padding: 20px 22px;
+      border-radius: var(--radius);
+      border: 2px dashed #cbd5e1;
+      border-left: 4px solid #f59e0b;
+      background: #fffbeb;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .unlabeled-card:hover {
+      border-color: #f59e0b;
+      box-shadow: 0 4px 16px rgba(245,158,11,0.12);
+    }
+    .unlabeled-card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 2px dashed #e2e8f0;
+    }
+    .unlabeled-card-header h3 {
+      color: #92400e;
+    }
+    .unlabeled-card-header .chart-kicker {
+      color: #d97706;
     }
     .analysis-header {
       display: flex;
@@ -2718,35 +2790,11 @@ def render_html_report(result: dict, output_path: Path) -> Path:
 
     {summary_section}
 
-    {query_section}
-
     <section class="kpis">
       {"".join(f'<article class="kpi"><div class="label">{_e(item["label"])}</div><div class="value">{_e(item["value"])}</div></article>' for item in kpis)}
     </section>
 
     {selected_sections}
-
-    <section class="chart-card footnote" data-reveal="section" data-lazy="section">
-      <div class="chart-header">
-        <div>
-          <span class="chart-kicker">METHOD</span>
-          <h3>口径说明</h3>
-        </div>
-      </div>
-      <div class="table-scroll">
-        <table class="data-table">
-          <tbody>
-            <tr><th>数据来源</th><td>{_e(source_text)} 已导入 Elasticsearch，并通过聚合查询生成。</td></tr>
-            <tr><th>适用范围</th><td>{_e(analysis_type)}。</td></tr>
-            <tr><th>负向情绪</th><td>当前以「愤怒、失望、焦虑、不满、烦躁」作为负向情绪集合。</td></tr>
-            <tr><th>赛事日标注</th><td>{_e(schedule_method_text)}</td></tr>
-            <tr><th>趋势窗口</th><td>{_e(trend_window_note)}</td></tr>
-            <tr><th>多标签统计</th><td>一级、二级、三级及业务等多值字段按分隔符拆分后聚合，因此同一工单可贡献到多个标签桶。</td></tr>
-            <tr><th>用户属性字段</th><td>当前新增表头包含省份、服务时间、时段、处理耗时、会员类型聚类等基础信息；未包含终端型号、App 版本字段，报告不做该维度推断。</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
   </main>
   <script>
     (() => {{

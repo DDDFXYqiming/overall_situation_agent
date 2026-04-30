@@ -36,6 +36,10 @@ class Settings:
     llm_model: str = "deepseek-chat"
     llm_timeout_seconds: int = 45
     llm_max_retries: int = 2
+    llm_report_timeout_seconds: int = 12
+    llm_report_max_retries: int = 0
+    llm_report_max_tokens: int = 2500
+    llm_report_enabled: bool = False
     import_batch_size: int = 500
     outputs_dir: Path = Path("outputs")
     logs_dir: Path = Path("logs")
@@ -74,6 +78,10 @@ def load_settings(project_dir: Path | None = None) -> Settings:
         llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
         llm_timeout_seconds=int(os.getenv("LLM_TIMEOUT_SECONDS", "45")),
         llm_max_retries=int(os.getenv("LLM_MAX_RETRIES", "2")),
+        llm_report_timeout_seconds=int(os.getenv("LLM_REPORT_TIMEOUT_SECONDS", "12")),
+        llm_report_max_retries=int(os.getenv("LLM_REPORT_MAX_RETRIES", "0")),
+        llm_report_max_tokens=int(os.getenv("LLM_REPORT_MAX_TOKENS", "2500")),
+        llm_report_enabled=os.getenv("LLM_REPORT_ENABLED", "false").lower() == "true",
         import_batch_size=int(os.getenv("IMPORT_BATCH_SIZE", "500")),
         outputs_dir=outputs_dir,
         logs_dir=logs_dir,

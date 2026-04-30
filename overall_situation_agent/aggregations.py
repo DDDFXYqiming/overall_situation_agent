@@ -20,13 +20,18 @@ def _date_filter(start_date: str | None, end_date: str | None) -> list[dict]:
     return [{"range": {"service_time": range_query}}]
 
 
-def _base_query(start_date: str | None, end_date: str | None) -> dict:
+def _base_query(start_date: str | None, end_date: str | None, exclude_unlabeled: bool = False) -> dict:
     filters = _date_filter(start_date, end_date)
+    if exclude_unlabeled:
+        filters.append({"exists": {"field": "primary_labels"}})
     return {"bool": {"filter": filters}} if filters else {"match_all": {}}
 
 
-def _terms(field: str, size: int = 20) -> dict:
-    return {"terms": {"field": field, "size": size, "missing": "未标注"}}
+def _terms(field: str, size: int = 20, exclude: list[str] | None = None) -> dict:
+    body: dict[str, Any] = {"field": field, "size": size}
+    if exclude:
+        body["exclude"] = exclude
+    return {"terms": body}
 
 
 def _text_terms(field: str, size: int = 20) -> dict:
@@ -34,8 +39,23 @@ def _text_terms(field: str, size: int = 20) -> dict:
         "terms": {
             "field": field,
             "size": size,
-            "missing": "未标注",
             "exclude": ["无", "不适用", "{}"],
+        }
+    }
+
+
+def _age_ranges() -> dict:
+    return {
+        "range": {
+            "field": "age",
+            "ranges": [
+                {"key": "18岁以下", "to": 18},
+                {"key": "18-25", "from": 18, "to": 26},
+                {"key": "26-35", "from": 26, "to": 36},
+                {"key": "36-45", "from": 36, "to": 46},
+                {"key": "46-60", "from": 46, "to": 61},
+                {"key": "60岁以上", "from": 61},
+            ],
         }
     }
 
@@ -46,7 +66,21 @@ def run_overall_aggregations(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    query = _base_query(start_date, end_date)
+    total_response = es.search(
+        index=index_name,
+        body={
+            "size": 0,
+            "track_total_hits": True,
+            "query": _base_query(start_date, end_date),
+        },
+    )
+    total_with_unlabeled = (
+        total_response.body["hits"]["total"]["value"]
+        if isinstance(total_response.body["hits"]["total"], dict)
+        else total_response.body["hits"]["total"]
+    )
+
+    query = _base_query(start_date, end_date, exclude_unlabeled=True)
     body = {
         "size": 0,
         "track_total_hits": True,
@@ -64,21 +98,29 @@ def run_overall_aggregations(
             "source_file": _terms("source_file", 5),
             "refund": _terms("has_refund_demand", 5),
             "escalation": _terms("has_escalation", 5),
+            "label_group": _terms("label_group", 20),
             "insight_dimension": _terms("insight_dimension", 10),
+            "customer_key_appeal": _terms("customer_key_appeal.keyword", 10),
+            "cs_key_action": _text_terms("cs_key_action.keyword", 10),
             "operation_action": _terms("operation_action", 10),
             "biz_member_cluster": _terms("biz_member_cluster", 12),
+            "marketing_activity_page": _terms("marketing_activity_page", 10, exclude=["无", "不适用", "{}", "[]", "未知"]),
+            "marketing_activity_match_status": _terms("marketing_activity_match_status", 8, exclude=["无", "否", "不适用", "{}", "[]", "未知"]),
+            "marketing_activity_match_keywords": _terms("marketing_activity_match_keywords", 12, exclude=["无", "不适用", "{}", "[]", "未知"]),
+            "gender": _terms("gender", 5, exclude=["未知", "无", "不适用"]),
+            "age_ranges": _age_ranges(),
             "time_period": _terms("time_period", 8),
             "match_label": _terms("match_label", 10),
             "avg_duration_minutes": {"avg": {"field": "duration_minutes"}},
             "primary_secondary": {
-                "terms": {"field": "primary_labels", "size": 20, "missing": "未标注"},
+                "terms": {"field": "primary_labels", "size": 20},
                 "aggs": {"secondary": _terms("secondary_labels", 10)},
             },
             "primary_secondary_tertiary": {
-                "terms": {"field": "primary_labels", "size": 20, "missing": "未标注"},
+                "terms": {"field": "primary_labels", "size": 20},
                 "aggs": {
                     "secondary": {
-                        "terms": {"field": "secondary_labels", "size": 30, "missing": "未标注"},
+                        "terms": {"field": "secondary_labels", "size": 30},
                         "aggs": {
                             "tertiary": _terms("tertiary_labels", 30),
                         },
@@ -94,7 +136,11 @@ def run_overall_aggregations(
                 },
                 "aggs": {
                     "negative": {"filter": {"terms": {"scene_emotion": NEGATIVE_EMOTIONS}}},
+                    "top_primary": _terms("primary_labels", 3),
+                    "top_secondary": _terms("secondary_labels", 3),
                     "top_tertiary": _terms("tertiary_labels", 3),
+                    "top_service_type": _terms("scene_service_type", 3),
+                    "top_member_cluster": _terms("biz_member_cluster", 3),
                     "top_events": _terms("scene_event", 3),
                     "top_operations": _terms("operation_action", 3),
                     "top_matches": _terms("match_label", 3),
@@ -118,7 +164,7 @@ def run_overall_aggregations(
                 },
             },
             "top_tertiary_examples": {
-                "terms": {"field": "tertiary_labels", "size": 5, "missing": "未标注"},
+                "terms": {"field": "tertiary_labels", "size": 5},
                 "aggs": {
                     "top_appeals": _terms("customer_key_appeal.keyword", 3),
                     "sample": {
@@ -140,7 +186,7 @@ def run_overall_aggregations(
                 },
             },
             "operation_need_examples": {
-                "terms": {"field": "operation_action", "size": 8, "missing": "未标注"},
+                "terms": {"field": "operation_action", "size": 8},
                 "aggs": {
                     "top_latent_needs": _text_terms("latent_need.keyword", 5),
                     "top_member_clusters": _terms("biz_member_cluster", 5),
@@ -164,7 +210,7 @@ def run_overall_aggregations(
                 },
             },
             "member_cluster_examples": {
-                "terms": {"field": "biz_member_cluster", "size": 10, "missing": "未标注"},
+                "terms": {"field": "biz_member_cluster", "size": 10},
                 "aggs": {
                     "top_tertiary": _terms("tertiary_labels", 5),
                     "top_appeals": _terms("customer_key_appeal.keyword", 5),
@@ -187,7 +233,6 @@ def run_overall_aggregations(
                 "terms": {
                     "field": "latent_need.keyword",
                     "size": 10,
-                    "missing": "未标注",
                     "exclude": ["无", "不适用", "{}"],
                 },
                 "aggs": {
@@ -212,7 +257,11 @@ def run_overall_aggregations(
         },
     }
     response = es.search(index=index_name, body=body)
-    return normalize_aggregations(response.body, start_date, end_date)
+    result = normalize_aggregations(response.body, start_date, end_date)
+    result["total_with_unlabeled"] = total_with_unlabeled
+    result["unlabeled_analysis"] = run_unlabeled_analysis(es, index_name, start_date, end_date)
+    result["unlabeled_trend_analysis"] = run_unlabeled_trend_analysis(es, index_name, start_date, end_date)
+    return result
 
 
 def _bucket_list(agg: dict) -> list[dict]:
@@ -267,7 +316,11 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
         count = bucket["doc_count"]
         negative_count = bucket["negative"]["doc_count"]
         negative_ratio = round(negative_count / count, 4) if count else 0
+        top_primary = _bucket_list(bucket.get("top_primary", {}))
+        top_secondary = _bucket_list(bucket.get("top_secondary", {}))
         top_tertiary = _bucket_list(bucket["top_tertiary"])
+        top_service_type = _bucket_list(bucket.get("top_service_type", {}))
+        top_member_cluster = _bucket_list(bucket.get("top_member_cluster", {}))
         top_events = _bucket_list(bucket["top_events"])
         top_operations = _bucket_list(bucket.get("top_operations", {}))
         top_matches = _bucket_list(bucket.get("top_matches", {}))
@@ -276,7 +329,11 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
             "count": count,
             "negative_count": negative_count,
             "negative_ratio": negative_ratio,
+            "top_primary": top_primary,
+            "top_secondary": top_secondary,
             "top_tertiary": top_tertiary,
+            "top_service_type": top_service_type,
+            "top_member_cluster": top_member_cluster,
             "top_events": top_events,
             "top_operations": top_operations,
             "top_matches": top_matches,
@@ -412,9 +469,17 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
         "source_files": _bucket_list(aggs["source_file"]),
         "refund": _bucket_list(aggs["refund"]),
         "escalation": _bucket_list(aggs["escalation"]),
+        "label_group": _bucket_list(aggs["label_group"]),
         "insight_dimension": _bucket_list(aggs["insight_dimension"]),
+        "customer_key_appeal": _bucket_list(aggs["customer_key_appeal"]),
+        "cs_key_action": _bucket_list(aggs["cs_key_action"]),
         "operation_action": _bucket_list(aggs["operation_action"]),
         "biz_member_cluster": _bucket_list(aggs["biz_member_cluster"]),
+        "marketing_activity_page": _bucket_list(aggs["marketing_activity_page"]),
+        "marketing_activity_match_status": _bucket_list(aggs["marketing_activity_match_status"]),
+        "marketing_activity_match_keywords": _bucket_list(aggs["marketing_activity_match_keywords"]),
+        "gender": _bucket_list(aggs["gender"]),
+        "age_ranges": _bucket_list(aggs["age_ranges"]),
         "time_period": _bucket_list(aggs["time_period"]),
         "match_label": _bucket_list(aggs["match_label"]),
         "avg_duration_minutes": aggs.get("avg_duration_minutes", {}).get("value"),
@@ -432,7 +497,8 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
 
 
 def build_insights(result: dict[str, Any]) -> list[str]:
-    total = result["total"]
+    labeled_total = result["total"]
+    total = result.get("total_with_unlabeled", labeled_total)
     if total == 0:
         return ["当前筛选周期内未检索到可统计的工单数据。"]
 
@@ -443,7 +509,7 @@ def build_insights(result: dict[str, Any]) -> list[str]:
     peak_day = max(result["daily"], key=lambda x: x["count"], default=None)
 
     if top_primary:
-        insights.append(f"本周期共纳入 {total} 条用户反馈/投诉记录，一级问题中「{top_primary['key']}」占比最高，提及 {top_primary['count']} 次。")
+        insights.append(f"本周期共纳入 {total} 条用户反馈/投诉工单，一级问题中「{top_primary['key']}」占比最高，提及 {top_primary['count']} 次。")
     if top_tertiary:
         insights.append(f"三级问题 TOP 项为「{top_tertiary['key']}」，提及 {top_tertiary['count']} 次，是整体情况中最需要优先定位原因的痛点。")
     if peak_day:
@@ -458,3 +524,170 @@ def build_insights(result: dict[str, Any]) -> list[str]:
         insights.append(f"情绪标签中「{top_emotion['key']}」最多，建议在后续根因分析中结合客服处理动作和用户关键诉求一起判断。")
 
     return insights
+
+
+def run_unlabeled_analysis(
+    es: SimpleElasticsearch,
+    index_name: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    filters = _date_filter(start_date, end_date)
+    filters.append({"bool": {"must_not": [{"exists": {"field": "primary_labels"}}]}})
+    query = {"bool": {"filter": filters}}
+    body = {
+        "size": 0,
+        "track_total_hits": True,
+        "query": query,
+        "aggs": {
+            "emotion": _terms("scene_emotion", 10),
+            "biz_member_cluster": _terms("biz_member_cluster", 10),
+            "province": _terms("province_name", 15),
+            "service_type": _terms("scene_service_type", 5),
+            "csp_name": _terms("csp_name", 10),
+            "operation_action": _terms("operation_action", 10),
+            "latent_need": _text_terms("latent_need.keyword", 10),
+            "customer_key_appeal": _terms("customer_key_appeal.keyword", 10),
+            "has_refund_demand": _terms("has_refund_demand", 5),
+            "has_escalation": _terms("has_escalation", 5),
+            "insight_dimension": _terms("insight_dimension", 10),
+            "time_period": _terms("time_period", 8),
+            "samples": {
+                "top_hits": {
+                    "size": 15,
+                    "_source": [
+                        "gd_identity",
+                        "content",
+                        "cs_reply",
+                        "customer_key_appeal",
+                        "operation_action",
+                        "latent_need",
+                        "latent_need_reason",
+                        "biz_member_cluster",
+                        "province_name",
+                        "scene_emotion",
+                        "scene_service_type",
+                        "csp_name",
+                        "has_refund_demand",
+                        "has_escalation",
+                        "insight_dimension",
+                        "time_period",
+                    ],
+                }
+            },
+        },
+    }
+    response = es.search(index=index_name, body=body)
+    return normalize_unlabeled_analysis(response.body)
+
+
+def normalize_unlabeled_analysis(response: dict) -> dict[str, Any]:
+    aggs = response["aggregations"]
+    total = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+
+    samples = []
+    for hit in aggs["samples"]["hits"]["hits"]:
+        source = hit.get("_source", {})
+        content = str(source.get("content") or "").strip()
+        samples.append({
+            "gd_identity": source.get("gd_identity"),
+            "content_excerpt": content[:200],
+            "cs_reply": source.get("cs_reply"),
+            "customer_key_appeal": source.get("customer_key_appeal"),
+            "operation_action": source.get("operation_action"),
+            "latent_need": source.get("latent_need"),
+            "latent_need_reason": source.get("latent_need_reason"),
+            "biz_member_cluster": source.get("biz_member_cluster"),
+            "province": source.get("province_name"),
+            "emotion": source.get("scene_emotion"),
+            "service_type": source.get("scene_service_type"),
+            "csp_name": source.get("csp_name"),
+            "has_refund_demand": source.get("has_refund_demand"),
+            "has_escalation": source.get("has_escalation"),
+            "insight_dimension": source.get("insight_dimension"),
+            "time_period": source.get("time_period"),
+        })
+
+    return {
+        "unlabeled_total": total,
+        "samples": samples,
+        "emotion": _bucket_list(aggs["emotion"]),
+        "biz_member_cluster": _bucket_list(aggs["biz_member_cluster"]),
+        "province": _bucket_list(aggs["province"]),
+        "service_type": _bucket_list(aggs["service_type"]),
+        "csp_name": _bucket_list(aggs["csp_name"]),
+        "operation_action": _bucket_list(aggs["operation_action"]),
+        "latent_need": _bucket_list(aggs["latent_need"]),
+        "customer_key_appeal": _bucket_list(aggs["customer_key_appeal"]),
+        "has_refund_demand": _bucket_list(aggs["has_refund_demand"]),
+        "has_escalation": _bucket_list(aggs["has_escalation"]),
+        "insight_dimension": _bucket_list(aggs["insight_dimension"]),
+        "time_period": _bucket_list(aggs["time_period"]),
+    }
+
+
+def run_unlabeled_trend_analysis(
+    es: SimpleElasticsearch,
+    index_name: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    filters = _date_filter(start_date, end_date)
+    filters.append({"bool": {"must_not": [{"exists": {"field": "primary_labels"}}]}})
+    query = {"bool": {"filter": filters}}
+    body = {
+        "size": 0,
+        "track_total_hits": True,
+        "query": query,
+        "aggs": {
+            "daily": {
+                "date_histogram": {
+                    "field": "service_time",
+                    "calendar_interval": "day",
+                    "format": "yyyy-MM-dd",
+                    "min_doc_count": 1,
+                },
+                "aggs": {
+                    "emotion": _terms("scene_emotion", 5),
+                    "top_appeal": _terms("customer_key_appeal.keyword", 3),
+                    "negative": {"filter": {"terms": {"scene_emotion": NEGATIVE_EMOTIONS}}},
+                },
+            },
+
+        },
+    }
+    response = es.search(index=index_name, body=body)
+    return normalize_unlabeled_trend_analysis(response.body)
+
+
+def normalize_unlabeled_trend_analysis(response: dict) -> dict[str, Any]:
+    aggs = response["aggregations"]
+    total = response["hits"]["total"]["value"] if isinstance(response["hits"]["total"], dict) else response["hits"]["total"]
+
+    daily = []
+    peak_day_data = None
+    emotion_peak_day_data = None
+
+    for bucket in aggs["daily"]["buckets"]:
+        count = bucket["doc_count"]
+        negative_count = bucket["negative"]["doc_count"]
+        negative_ratio = round(negative_count / count, 4) if count else 0
+        daily.append({
+            "date": bucket["key_as_string"],
+            "count": count,
+            "negative_count": negative_count,
+            "negative_ratio": negative_ratio,
+            "emotion": _bucket_list(bucket["emotion"]),
+            "top_appeal": _bucket_list(bucket["top_appeal"]),
+        })
+
+    if daily:
+        peak_day_data = max(daily, key=lambda x: x["count"])
+        emotion_peak_day_data = max(daily, key=lambda x: x["negative_ratio"])
+
+    return {
+        "unlabeled_total": total,
+        "daily": daily,
+        "peak_day": peak_day_data,
+        "emotion_peak_day": emotion_peak_day_data,
+    }

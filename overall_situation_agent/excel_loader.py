@@ -20,9 +20,13 @@ FIELD_ALIASES = {
     "省份名称": "province_name",
     "服务时间": "service_time",
     "截止时间": "end_time",
+    "服务截至时间": "end_time",
     "服务时间到截止时间的耗时（分钟为单位）": "duration_minutes",
     "服务时间到截止时间的耗时(分钟为单位)": "duration_minutes",
+    "服务时间到截止时间的耗时（小时为单位）": "duration_hours",
+    "服务时间到截止时间的耗时(小时为单位)": "duration_hours",
     "开始时间的月份": "month",
+    "月份": "month",
     "日期": "day",
     "时段": "time_period",
     "具体时间（时:分）": "hour",
@@ -40,13 +44,21 @@ FIELD_ALIASES = {
     "CSP_PROV_ID(服务提供商省份ID)": "csp_prov_id",
     "CSP_PROV_NAME（服务提供商省份名称）": "csp_prov_name",
     "CSP_PROV_NAME(服务提供商省份名称)": "csp_prov_name",
+    "标签组": "label_group",
+    "一级标签": "primary_labels",
     "一级标签集合": "primary_labels",
+    "二级标签": "secondary_labels",
     "二级标签集合": "secondary_labels",
+    "三级标签": "tertiary_labels",
     "三级标签集合": "tertiary_labels",
     "触发场景-赛事/事件": "scene_event",
     "触发场景-情绪": "scene_emotion",
     "触发场景-服务类型": "scene_service_type",
+    "触发场景-服务类型（内容判断）": "scene_service_type",
+    "触发场景-服务类型(内容判断)": "scene_service_type",
     "洞察维度": "insight_dimension",
+    "洞察维度（用得难/烦/亏）": "insight_dimension",
+    "洞察维度(用得难/烦/亏)": "insight_dimension",
     "客户关键诉求": "customer_key_appeal",
     "客户诉求关键词": "customer_keywords",
     "客服关键处理动作": "cs_key_action",
@@ -58,7 +70,13 @@ FIELD_ALIASES = {
     "运营举措": "operation_action",
     "隐性需求描述": "latent_need",
     "隐性需求理由": "latent_need_reason",
+    "涉及业务/会员类型": "biz_member_cluster",
     "涉及业务/会员类型_聚类": "biz_member_cluster",
+    "营销活动页面名称": "marketing_activity_page",
+    "营销活动匹配状态": "marketing_activity_match_status",
+    "营销活动匹配关键词": "marketing_activity_match_keywords",
+    "年龄": "age",
+    "性别": "gender",
 }
 CONTENT_PRIORITY = ("complaint_content", "content")
 EXPECTED_FIELDS = {
@@ -118,7 +136,40 @@ def _split_values(value: Any) -> list[str]:
     if not isinstance(cleaned, str):
         cleaned = str(cleaned)
     parts = [part.strip() for part in SPLIT_PATTERN.split(cleaned)]
-    return [part for part in parts if part and part not in {"无", "不适用", "{}"}]
+    return [part for part in parts if part and part not in {"无", "不适用", "{}", "[]"}]
+
+
+def _split_label_group(value: Any) -> list[str]:
+    cleaned = _clean_scalar(value)
+    if cleaned is None:
+        return []
+    text = str(cleaned).strip()
+    if not text or text in {"无", "不适用", "{}", "[]"}:
+        return []
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return _split_values(text)
+    if not isinstance(payload, list):
+        return _split_values(text)
+    groups: list[str] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        primary = str(item.get("一级标签") or item.get("primary") or "").strip()
+        secondary = str(item.get("二级标签") or item.get("secondary") or "").strip()
+        tertiary_value = item.get("三级标签") or item.get("tertiary") or []
+        if isinstance(tertiary_value, list):
+            tertiaries = [str(part).strip() for part in tertiary_value if str(part).strip()]
+        else:
+            tertiaries = _split_values(tertiary_value)
+        if tertiaries:
+            groups.extend(" / ".join(part for part in [primary, secondary, tertiary] if part) for tertiary in tertiaries)
+        else:
+            group = " / ".join(part for part in [primary, secondary] if part)
+            if group:
+                groups.append(group)
+    return groups
 
 
 def _coerce_number(value: Any, number_type: str) -> int | float | None:
@@ -182,7 +233,9 @@ def _row_to_document(headers: list[str], row: tuple[Any, ...], imported_at: str,
 
     for field, values in raw_values.items():
         value = next((item for item in values if not _is_empty(item)), None)
-        if field in MULTI_VALUE_FIELDS:
+        if field == "label_group":
+            doc[field] = _split_label_group(value)
+        elif field in MULTI_VALUE_FIELDS:
             doc[field] = _split_values(value)
         elif field in DATE_FIELDS:
             doc[field] = _clean_scalar(value)

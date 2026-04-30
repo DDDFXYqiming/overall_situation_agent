@@ -10,6 +10,7 @@ KEYWORD_FIELDS = [
     "csp_prov_name",
     "month",
     "time_period",
+    "label_group",
     "primary_labels",
     "secondary_labels",
     "tertiary_labels",
@@ -22,6 +23,10 @@ KEYWORD_FIELDS = [
     "biz_type",
     "operation_action",
     "biz_member_cluster",
+    "marketing_activity_page",
+    "marketing_activity_match_status",
+    "marketing_activity_match_keywords",
+    "gender",
     "match_label",
     "has_refund_demand",
     "has_escalation",
@@ -47,9 +52,11 @@ NUMERIC_FIELDS = {
     "duration_minutes": "float",
     "day": "integer",
     "hour": "integer",
+    "age": "integer",
 }
 
 MULTI_VALUE_FIELDS = {
+    "label_group",
     "primary_labels",
     "secondary_labels",
     "tertiary_labels",
@@ -62,6 +69,7 @@ MULTI_VALUE_FIELDS = {
     "biz_type",
     "operation_action",
     "biz_member_cluster",
+    "marketing_activity_match_keywords",
     "match_label",
 }
 
