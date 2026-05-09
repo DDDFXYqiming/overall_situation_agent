@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +12,9 @@ from .report import (
     _matchday,
     _matchday_note,
     _matchday_summary,
+    _cause_field_summary_at,
+    _narrative_line_at,
+    _natural_sample_summary,
     _pct,
     _query_note_text,
     _safe_ratio,
@@ -89,7 +91,25 @@ def _rank_table(items: list[dict], total: int, label_name: str, limit: int = 10)
 
 def _tag_counts(items: list[dict], limit: int = 5) -> str:
     visible = [item for item in items if item.get("count", 0) > 0][:limit]
-    return "、".join(f"{item.get('key', '未标注')}({_n(item.get('count', 0))})" for item in visible) or "无"
+    if not visible:
+        return "无"
+    total = sum(int(item.get("count", 0)) for item in visible)
+    parts = []
+    for item in visible:
+        count = int(item.get("count", 0))
+        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
+        parts.append(f"{item.get('key', '未标注')}（共{_n(count)}条，占比{pct}）")
+    return "、".join(parts)
+
+
+def _key_text(items: list[Any], limit: int = 3) -> str:
+    keys = []
+    for item in (items or [])[:limit]:
+        value = item.get("key") if isinstance(item, dict) else item
+        text = str(value or "").strip()
+        if text:
+            keys.append(text)
+    return "、".join(keys) or "无"
 
 
 def _duration_text(value: Any) -> str:
@@ -240,6 +260,27 @@ def _case_markdown(result: dict) -> str:
     return _table(["三级问题", "关联量", "客户诉求", "样例摘要"], rows[:4])
 
 
+def _merged_cause_voice_markdown(result: dict, narratives: dict[str, list[str]] | None = None) -> str:
+    examples = result.get("top_tertiary_examples", [])
+    if not examples:
+        return ""
+    narratives = narratives or {}
+    rows = []
+    for idx, item in enumerate(examples):
+        count = int(item.get("count", 0))
+        field_summary = _cause_field_summary_at(narratives, item, idx)
+        rows.append(
+            [
+                item.get("key", "未标注"),
+                f"{_n(count)}条",
+                field_summary.get("content_reply_summary", ""),
+                field_summary.get("appeal_keyword_summary", ""),
+                field_summary.get("cs_action_keyword_summary", ""),
+            ]
+        )
+    return _table(["三级问题", "提及量", "工单内容与客服回复总结", "客户诉求与关键词总结", "客服处理动作与关键词总结"], rows)
+
+
 def _matchday_text(day: dict) -> str:
     summary = _matchday_summary(day)
     event = _event_label(day)
@@ -272,11 +313,10 @@ def _anomaly_table(anomalies: list[dict]) -> str:
     if not anomalies:
         return "当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。"
     rows = []
-    for day in _sorted_anomaly_days(anomalies):
+    for day in _sorted_anomaly_days(anomalies)[:3]:
         rows.append(
             [
                 day.get("date"),
-                _n(day.get("count", 0)),
                 _pct(float(day.get("day_over_day_growth", 0))),
                 _pct(float(day.get("negative_ratio", 0))),
                 _matchday_text(day),
@@ -287,10 +327,10 @@ def _anomaly_table(anomalies: list[dict]) -> str:
             ]
         )
     method = (
-        "异动口径：按服务时间 service_time 做日粒度聚合，日环比 >= 50% 且当日问题量 >= 5 件记为异动日；"
-        "排序逻辑为日环比降序，其次问题量降序，其次日期升序。"
+        "以上日期基于日聚合口径，日环比增长 ≥ 50% 且当日问题量 ≥ 5 件被识别为异动。"
+        "按日环比降序排列，以下列出排名前三的异动节点。"
     )
-    table = _table(["日期", "问题量", "日环比", "负向占比", "赛事日", "主要一级问题", "主要二级问题", "主要三级问题", "业务维度热点"], rows)
+    table = _table(["日期", "日环比", "负向占比", "赛事日", "主要一级问题", "主要二级问题", "主要三级问题", "业务维度热点"], rows)
     return f"{method}\n\n{table}"
 
 
@@ -306,8 +346,16 @@ def _simple_distribution_table(title: str, items: list[dict], original_chart: st
 def _trend_voice_markdown(trend_view: dict[str, Any], narratives: dict[str, list[str]]) -> str:
     items = _trend_voice_items(trend_view)
     summary = narratives.get("trend_voice_summary") or _trend_voice_summary(items)
+    summary_lines = narratives.get("trend_voice_sample_summaries") or []
     blocks = [_paragraphs(summary)]
-    for item in items:
+    for idx, item in enumerate(items):
+        samples = item.get("samples", [])
+        sample_summaries = []
+        for sample in samples[:2]:
+            text = sample.get("content_excerpt", "")
+            if text:
+                sample_summaries.append(_natural_sample_summary(text, _key_text(item.get("top_tertiary", []), 1)))
+        sample_text = _narrative_line_at(summary_lines, idx) or "；".join(sample_summaries) or "暂无样例。"
         blocks.append(
             "\n".join(
                 [
@@ -316,11 +364,7 @@ def _trend_voice_markdown(trend_view: dict[str, Any], narratives: dict[str, list
                     f"- 负向占比：{_pct(float(item.get('negative_ratio', 0)))}",
                     f"- 赛事摘要：{_text(item.get('match_summary') or '赛事日')}",
                     f"- 主要问题：{_tag_counts(item.get('top_tertiary', []), limit=3)}",
-                    *[
-                        f"- 样例：{_truncate(sample.get('content_excerpt'), 140)}"
-                        for sample in item.get("samples", [])[:2]
-                        if _text(sample.get("content_excerpt"))
-                    ],
+                    f"- 样例摘要：{sample_text}",
                 ]
             )
         )
@@ -336,6 +380,10 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
     total = int(result.get("total_with_unlabeled", labeled_total) or 0)
     period_start = result.get("period", {}).get("min") or result.get("filters", {}).get("start_date") or "未限定"
     period_end = result.get("period", {}).get("max") or result.get("filters", {}).get("end_date") or "未限定"
+    if len(period_start) > 10:
+        period_start = period_start[:10]
+    if len(period_end) > 10:
+        period_end = period_end[:10]
     primary_total = _sum_counts(result.get("primary", []))
     secondary_total = _sum_counts(result.get("secondary", []))
     tertiary_total = _sum_counts(result.get("tertiary", []))
@@ -352,12 +400,8 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
             [
                 f"> 数据周期：{period_start} 至 {period_end}  ",
                 f"> 总工单量：{_n(total)} 件  ",
-                f"> 分析类型：{_analysis_type_text(section_focus)}  ",
-                f"> 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             ]
         ),
-        "### 核心摘要",
-        _paragraphs(narratives.get("executive_summary"), _distribution_insights(result)[:3]),
     ]
 
     if section_focus in {"distribution", "full"}:
@@ -380,14 +424,10 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 _chart_note("三级标签类型分布饼状图及 TOP5 三级问题柱状图", "数据表"),
                 _paragraphs(narratives.get("tertiary_overview")),
                 _rank_table(result.get("tertiary", []), tertiary_total, "三级标签"),
-                "#### 三级问题原因线索",
-                _chart_note("原因线索卡片与样例原声卡片", "简化数据表与摘要"),
-                _paragraphs(narratives.get("cause_summary")),
-                _cause_table(result.get("top_tertiary_examples", [])),
-                "#### 样例原声与典型案例",
-                _paragraphs(narratives.get("voice_summary")),
-                _paragraphs(narratives.get("case_summary")),
-                _case_markdown(result),
+                "#### 三级问题原因线索、样例原声与典型案例",
+                _chart_note("原因线索卡片与样例原声卡片", "合并数据表"),
+                _paragraphs(narratives.get("cause_summary"), narratives.get("voice_summary")),
+                _merged_cause_voice_markdown(result, narratives),
             ]
         )
 
@@ -399,11 +439,13 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 "### 1.2 投诉趋势与异动表现",
                 "#### 分析结论",
                 _paragraphs(narratives.get("trend_conclusion"), _trend_insights(result, trend_view)),
-                _unlabeled_md_block(narratives.get("unlabeled_trend_summary") or _unlabeled_trend_lines(result), title="未标注一二三级标签工单时间趋势"),
-                "#### 每日趋势分析",
-                _chart_note("每日问题提及量与负向情绪占比双轴折线图", "趋势描述和每日明细表"),
+                "#### 每日问题提及量与负向情绪占比",
+                _chart_note(
+                    "每日问题提及量与负向情绪占比双轴折线图（左轴为问题提及量柱状图，右轴为负向情绪占比折线图，赛事日标注红色竖线）",
+                    "趋势描述和每日明细表",
+                ),
                 _paragraphs(trend_summary),
-                f"**趋势窗口**：{trend_window_note}",
+                f"**图表分析总结**：{trend_window_note}",
                 "#### 赛事日样例原声",
                 _chart_note("赛事日样例原声卡片", "文本摘要列表"),
                 _trend_voice_markdown(trend_view, narratives),

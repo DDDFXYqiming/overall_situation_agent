@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .es_client import SimpleElasticsearch
+from .evidence import build_tertiary_evidence_package
 from .schema import NEGATIVE_EMOTIONS
 
 
@@ -258,6 +259,14 @@ def run_overall_aggregations(
     }
     response = es.search(index=index_name, body=body)
     result = normalize_aggregations(response.body, start_date, end_date)
+    top_tertiary_evidence = build_tertiary_evidence_package(
+        es,
+        index_name,
+        query,
+        top_n=5,
+    )
+    result["top_tertiary_cause_evidence"] = top_tertiary_evidence
+    result["top_tertiary_examples"] = top_tertiary_evidence.get("items", [])
     result["total_with_unlabeled"] = total_with_unlabeled
     result["unlabeled_analysis"] = run_unlabeled_analysis(es, index_name, start_date, end_date)
     result["unlabeled_trend_analysis"] = run_unlabeled_trend_analysis(es, index_name, start_date, end_date)

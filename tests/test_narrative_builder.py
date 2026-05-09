@@ -36,9 +36,9 @@ class NarrativeBuilderTests(unittest.TestCase):
         narratives = build_report_narratives({"total": 10}, llm)
 
         self.assertEqual(narratives["executive_summary"], ["executive_summary ok"])
-        self.assertEqual(llm.kwargs["timeout_seconds"], 3)
-        self.assertEqual(llm.kwargs["max_retries"], 0)
-        self.assertEqual(llm.kwargs["max_tokens"], 321)
+        self.assertEqual(llm.kwargs["timeout_seconds"], 180)
+        self.assertEqual(llm.kwargs["max_retries"], 1)
+        self.assertEqual(llm.kwargs["max_tokens"], 8000)
 
     def test_report_narratives_fall_back_when_llm_is_unavailable(self) -> None:
         llm = _FakeLLM(LLMResponse(content="", used_fallback=True))
@@ -103,6 +103,24 @@ class NarrativeBuilderTests(unittest.TestCase):
         self.assertIn("14", narratives["distribution_conclusion"][0])
         self.assertNotIn("10 条已标注", narratives["distribution_conclusion"][0])
 
+    def test_fallback_label_counts_include_share_in_conclusions(self) -> None:
+        result = {
+            "total": 10,
+            "total_with_unlabeled": 14,
+            "primary": [{"key": "业务体验", "count": 6}, {"key": "使用体验", "count": 4}],
+            "secondary": [{"key": "计费争议", "count": 7}, {"key": "权益使用", "count": 3}],
+            "tertiary": [{"key": "退订困难", "count": 5}, {"key": "权益无法兑换", "count": 5}],
+            "unlabeled_analysis": {"unlabeled_total": 4},
+        }
+
+        narratives = build_report_narratives(result, _DisabledLLM())
+        text = "\n".join(narratives["distribution_conclusion"])
+
+        self.assertIn("业务体验（共6条，占比60.0%）", text)
+        self.assertIn("计费争议（共7条，占比70.0%）", text)
+        self.assertIn("退订困难（共5条，占比50.0%）", text)
+        self.assertNotIn("业务体验（6）", text)
+
     def test_fallback_narratives_include_business_and_matchday_context(self) -> None:
         result = {
             "total": 10,
@@ -134,10 +152,12 @@ class NarrativeBuilderTests(unittest.TestCase):
 
         self.assertTrue(any("业务维度" in line for line in narratives["distribution_conclusion"]))
         trend_text = "\n".join(narratives["trend_conclusion"])
-        self.assertIn("赛程.xlsx", trend_text)
-        self.assertIn("赛事日标注", trend_text)
-        self.assertIn("一级/二级/三级", trend_text)
-        self.assertIn("业务热点", trend_text)
+        self.assertIn("有比赛的是", trend_text)
+        self.assertIn("赛事日合计问题量", trend_text)
+        self.assertNotIn("已加载赛程文件", trend_text)
+        self.assertNotIn("赛事日标注", trend_text)
+        self.assertNotIn("一级/二级/三级", trend_text)
+        self.assertNotIn("业务热点", trend_text)
 
 
 if __name__ == "__main__":

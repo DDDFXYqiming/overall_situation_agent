@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import re
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
@@ -35,12 +37,139 @@ def _safe_ratio(part: float, whole: float) -> float:
 
 
 def _tags(items: list[dict]) -> str:
+    total = sum(item.get("count", 0) for item in items)
     tags = []
     for item in items:
+        count = item.get("count", 0)
+        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
         tags.append(
-            f'<span class="tag"><span class="tag-text">{_e(item["key"])}</span><strong>{_e(item["count"])}</strong></span>'
+            f'<span class="tag"><span class="tag-text">{_e(item["key"])}</span><strong>共{_n(count)}条，占比{pct}</strong></span>'
         )
     return "".join(tags)
+
+
+def _key_text(items: list[Any], limit: int = 3) -> str:
+    keys = []
+    for item in (items or [])[:limit]:
+        value = item.get("key") if isinstance(item, dict) else item
+        text = str(value or "").strip()
+        if text:
+            keys.append(text)
+    return "、".join(keys) or "无"
+
+
+_RAW_DIALOG_MARKERS = ('"消息内容"', "'消息内容'", '{"发送方"', "[{")
+_BOILERPLATE_MARKERS = (
+    "正在为您转接人工",
+    "当前人工MM有点忙",
+    "请稍后",
+    "请耐心等待",
+    "您好，很高兴为您服务",
+    "请问有什么可以帮到您",
+)
+
+
+def _looks_like_raw_dialog(value: Any) -> bool:
+    text = str(value or "")
+    return any(marker in text for marker in _RAW_DIALOG_MARKERS)
+
+
+def _clean_message_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[A-Z0-9]{12,}", "", text)
+    return text.strip(" ;；,，。")
+
+
+def _extract_dialog_messages(value: Any) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+
+    def collect(payload: Any) -> tuple[list[str], list[str]]:
+        user_messages: list[str] = []
+        other_messages: list[str] = []
+        if isinstance(payload, list):
+            for entry in payload:
+                user_part, other_part = collect(entry)
+                user_messages.extend(user_part)
+                other_messages.extend(other_part)
+        elif isinstance(payload, dict):
+            message = _clean_message_text(
+                payload.get("消息内容")
+                or payload.get("message")
+                or payload.get("content")
+                or payload.get("工单内容")
+                or payload.get("工单投诉内容")
+            )
+            sender = str(payload.get("发送方") or payload.get("sender") or "")
+            if message:
+                if any(marker in message for marker in _BOILERPLATE_MARKERS):
+                    return user_messages, other_messages
+                if "用户" in sender or "客户" in sender:
+                    user_messages.append(message)
+                else:
+                    other_messages.append(message)
+        return user_messages, other_messages
+
+    parsed_messages: list[str] = []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = None
+    if parsed is not None:
+        user_messages, other_messages = collect(parsed)
+        parsed_messages = user_messages or other_messages
+
+    if not parsed_messages:
+        matches = re.findall(r'["“]消息内容["”]\s*[:：]\s*["“](.*?)["”]', text)
+        parsed_messages = [_clean_message_text(match) for match in matches]
+
+    if not parsed_messages and not _looks_like_raw_dialog(text):
+        parsed_messages = [_clean_message_text(text)]
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for message in parsed_messages:
+        if not message or any(marker in message for marker in _BOILERPLATE_MARKERS):
+            continue
+        if message in seen:
+            continue
+        seen.add(message)
+        deduped.append(message)
+    return deduped
+
+
+def _natural_sample_summary(value: Any, issue: str = "") -> str:
+    messages = _extract_dialog_messages(value)
+    if not messages:
+        return "样例主要反映用户在相关业务办理或观看过程中遇到体验阻断，需要结合问题标签进一步核验。"
+    combined = " ".join(messages[:3])
+    points: list[str] = []
+    if any(word in combined for word in ("退费", "退款", "退订", "不退")):
+        points.append("退订或退费处理结果不符合预期")
+    if any(word in combined for word in ("电视", "TV", "tv", "投屏", "大屏")):
+        points.append("电视端或投屏观看权益受阻")
+    if any(word in combined for word in ("手机", "多端", "四屏", "互通")):
+        points.append("手机端与电视端权益互通规则不清")
+    if any(word in combined for word in ("价格", "168", "219", "218", "258", "套餐", "补差")):
+        points.append("套餐价格和权益差异理解成本高")
+    if any(word in combined for word in ("会员", "权益", "兑换", "钻石")):
+        points.append("会员权益兑现与用户预期存在落差")
+    if any(word in combined for word in ("扣费", "订购", "误购", "自动续费", "不知情")):
+        points.append("订购扣费或自动续费流程引发争议")
+    if not points:
+        points.append("相关业务办理或观看过程存在体验阻断")
+    joined = "，并且".join(dict.fromkeys(points[:3]))
+    topic = f"「{issue}」" if issue else "该问题"
+    return f"样例中，用户围绕{topic}主要反馈{joined}。"
+
+
+def _narrative_line_at(lines: list[str] | None, index: int) -> str:
+    if not lines or index >= len(lines):
+        return ""
+    line = str(lines[index] or "").strip()
+    return "" if _looks_like_raw_dialog(line) else line
 
 
 def _bar_rows(items: list[dict], alt: bool = False) -> str:
@@ -48,16 +177,19 @@ def _bar_rows(items: list[dict], alt: bool = False) -> str:
     if not visible:
         return '<p class="subtle">暂无可展示数据。</p>'
     max_value = max(item["count"] for item in visible) or 1
+    total = sum(item["count"] for item in visible)
     cls = "bar-fill alt" if alt else "bar-fill"
     rows = []
     for item in visible:
-        width = round(item["count"] / max_value * 100, 1) if max_value else 0
+        count = item["count"]
+        width = round(count / max_value * 100, 1) if max_value else 0
+        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
         rows.append(
             f"""
             <div class="bar-row">
               <div class="bar-label">{_e(item["key"])}</div>
               <div class="bar-track"><div class="{cls}" style="--target-width:{width}%"></div></div>
-              <div class="bar-value">{_e(item["count"])}</div>
+              <div class="bar-value">共{_n(count)}条，占比{pct}</div>
             </div>
             """
         )
@@ -665,8 +797,9 @@ def _daily_rows(daily: list[dict]) -> str:
 def _anomaly_cards(anomalies: list[dict]) -> str:
     if not anomalies:
         return '<div class="analysis-box" data-reveal="card"><strong>异动判断</strong><p>当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。</p></div>'
+    sorted_days = _sorted_anomaly_days(anomalies)[:3]
     cards = []
-    for day in anomalies:
+    for day in sorted_days:
         cards.append(
             f"""
             <article class="signal-card" data-reveal="item">
@@ -745,6 +878,88 @@ def _voice_cards(items: list[dict]) -> str:
     return "".join(cards)
 
 
+def _merged_cause_voice_table(result: dict, narratives: dict[str, list[str]] | None = None) -> str:
+    examples = result.get("top_tertiary_examples", [])
+    if not examples:
+        return ""
+    narratives = narratives or {}
+    rows = []
+    for idx, item in enumerate(examples):
+        count = int(item.get("count", 0))
+        field_summary = _cause_field_summary_at(narratives, item, idx)
+        rows.append(f"""
+        <tr>
+          <td>{_e(item.get("key", "未标注"))}</td>
+          <td>{_n(count)}条</td>
+          <td>{_e(field_summary.get("content_reply_summary", ""))}</td>
+          <td>{_e(field_summary.get("appeal_keyword_summary", ""))}</td>
+          <td>{_e(field_summary.get("cs_action_keyword_summary", ""))}</td>
+        </tr>
+        """)
+    table = f"""
+    <div class="table-scroll table-scroll-wide">
+    <table class="data-table cause-voice-table">
+      <colgroup>
+        <col class="cause-col-issue">
+        <col class="cause-col-count">
+        <col class="cause-col-summary">
+        <col class="cause-col-summary">
+        <col class="cause-col-summary">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>三级问题</th>
+          <th>提及量</th>
+          <th>工单内容与客服回复总结</th>
+          <th>客户诉求与关键词总结</th>
+          <th>客服处理动作与关键词总结</th>
+        </tr>
+      </thead>
+      <tbody>{"".join(rows)}</tbody>
+    </table>
+    </div>
+    """
+    return table
+
+
+def _cause_field_summary_at(narratives: dict, item: dict, idx: int) -> dict[str, str]:
+    field_items = narratives.get("cause_field_summaries") or []
+    fallback = _cause_field_summary_fallback(item)
+    candidate = field_items[idx] if idx < len(field_items) else {}
+    if not isinstance(candidate, dict):
+        return fallback
+    return {
+        "content_reply_summary": str(candidate.get("content_reply_summary") or fallback["content_reply_summary"]).strip(),
+        "appeal_keyword_summary": str(candidate.get("appeal_keyword_summary") or fallback["appeal_keyword_summary"]).strip(),
+        "cs_action_keyword_summary": str(candidate.get("cs_action_keyword_summary") or fallback["cs_action_keyword_summary"]).strip(),
+    }
+
+
+def _cause_field_summary_fallback(item: dict) -> dict[str, str]:
+    issue = str(item.get("key") or "该三级问题").strip()
+    samples = item.get("samples") or []
+    sample_text = "；".join(
+        str(sample.get("content") or sample.get("content_excerpt") or "").strip()
+        for sample in samples[:3]
+        if str(sample.get("content") or sample.get("content_excerpt") or "").strip()
+    )
+    reply_seen = any(str(sample.get("cs_reply") or sample.get("cs_reply_excerpt") or "").strip() for sample in samples[:3])
+    content_summary = _natural_sample_summary(sample_text, issue) if sample_text else f"样例中，用户围绕「{issue}」主要反馈业务办理或观看过程中的体验阻断。"
+    if reply_seen:
+        content_summary += "客服回复侧多以规则解释、问题核查、投诉记录或退费处理衔接，处理结果需要进一步闭环。"
+    else:
+        content_summary += "客服回复信息在样本中不够充分，容易让用户继续追问处理进度和责任归属。"
+    appeals = _key_text(item.get("top_customer_appeals") or item.get("top_appeals") or [], 4)
+    customer_keywords = _key_text(item.get("top_customer_keywords", []), 5)
+    cs_actions = _key_text(item.get("top_cs_actions", []), 4)
+    cs_keywords = _key_text(item.get("top_cs_keywords", []), 5)
+    return {
+        "content_reply_summary": f"工单内容与客服回复：{content_summary}",
+        "appeal_keyword_summary": f"客户诉求与关键词：客户关键诉求集中在{appeals}，诉求关键词集中在{customer_keywords}；用户关注点主要落在退费、取消、核实办理来源或恢复权益这些直接结果。",
+        "cs_action_keyword_summary": f"客服处理动作与关键词：客服关键处理动作集中在{cs_actions}，处理关键词集中在{cs_keywords}；整体更偏向解释规则、提交核查和记录投诉，前端即时解决能力仍偏弱。",
+    }
+
+
 def _overview_table(title: str, kicker: str, items: list[dict], total: int, summary: str | list[str]) -> str:
     visible = [item for item in items if item.get("count", 0) > 0][:3]
     highlights = "".join(
@@ -800,9 +1015,16 @@ def _selected_daily_rows(days: list[dict], anomalies: list[dict] | None = None, 
     return sorted(selected[:limit], key=lambda item: str(item.get("date", "")))
 
 
-def _tag_text(items: list[dict], limit: int = 3) -> str:
+def _tag_text(items: list[dict], limit: int = 3, total: int | None = None) -> str:
     visible = [item for item in items if item.get("count", 0) > 0][:limit]
-    return "、".join(f"{item.get('key', '未标注')}（{_n(item.get('count', 0))}）" for item in visible) or "无"
+    denominator = total if total is not None else _sum_counts(items)
+    return (
+        "、".join(
+            f"{item.get('key', '未标注')}（共{_n(item.get('count', 0))}条，占比{_pct(_safe_ratio(item.get('count', 0), denominator))}）"
+            for item in visible
+        )
+        or "无"
+    )
 
 
 def _tag_key_text(items: list[dict], limit: int = 3) -> str:
@@ -834,12 +1056,7 @@ def _business_dimension_lines(result: dict) -> list[str]:
         top = service_type[0]
         lines.append(
             f"业务维度上，服务类型「{top.get('key', '未标注')}」占比 {_pct(_safe_ratio(top.get('count', 0), service_total))}，"
-            f"高频服务类型集中在 {_tag_text(service_type, 3)}。"
-        )
-    if member_cluster or tertiary:
-        lines.append(
-            f"结合涉及业务/会员类型，热点集中在 {_tag_text(member_cluster, 3)}，"
-            f"对应三级痛点主要是 {_tag_text(tertiary, 3)}。"
+            f"高频服务类型集中在 {_tag_text(service_type, 3, service_total)}。"
         )
     return lines
 
@@ -852,39 +1069,22 @@ def _trend_matchday_business_lines(result: dict, trend_view: dict[str, Any]) -> 
     schedule = _schedule_status(result)
     matchdays = [day for day in days if _matchday(day)]
     non_matchdays = [day for day in days if not _matchday(day)]
-    peak = max(days, key=lambda item: item.get("count", 0), default=None)
     lines: list[str] = []
 
-    if schedule.get("status") == "loaded":
-        source_name = schedule.get("source_name") or "赛程文件"
-        if matchdays and non_matchdays:
-            matchday_avg = sum(day.get("count", 0) for day in matchdays) / len(matchdays)
-            non_matchday_avg = sum(day.get("count", 0) for day in non_matchdays) / len(non_matchdays)
-            lines.append(
-                f"已加载赛程文件《{source_name}》；当前趋势窗口内赛事日日均问题量 {matchday_avg:.1f} 件，"
-                f"非赛事日日均 {non_matchday_avg:.1f} 件，用于判断比赛日是否放大投诉波动。"
-            )
-        elif matchdays:
-            matchday_total = sum(day.get("count", 0) for day in matchdays)
-            lines.append(
-                f"已加载赛程文件《{source_name}》；当前趋势窗口命中 {len(matchdays)} 个赛事日，"
-                f"赛事日合计问题量 {_n(matchday_total)} 件。"
-            )
-        else:
-            lines.append(f"已加载赛程文件《{source_name}》，但当前趋势窗口未命中赛事日。")
-    else:
-        lines.append(str(schedule.get("message") or "未提供赛程文件，1.2 未标注赛事日。"))
-
-    if peak:
-        match_text = _matchday_summary(peak) if _matchday(peak) else "非赛事日"
+    if matchdays and non_matchdays:
+        matchday_avg = sum(day.get("count", 0) for day in matchdays) / len(matchdays)
+        non_matchday_avg = sum(day.get("count", 0) for day in non_matchdays) / len(non_matchdays)
+        matchday_dates = ", ".join(sorted(day.get("date", "") for day in matchdays))
         lines.append(
-            f"峰值日 {peak.get('date')} 问题量 {_n(peak.get('count', 0))} 件，赛事日标注为{match_text}；"
-            f"当日一级问题为 {_tag_text(peak.get('top_primary', []), 2)}，二级问题为 {_tag_text(peak.get('top_secondary', []), 2)}，"
-            f"三级问题为 {_tag_text(peak.get('top_tertiary', []), 3)}。"
+            f"有比赛的是 {len(matchdays)} 天（{matchday_dates}），"
+            f"赛事日日均问题量 {matchday_avg:.1f} 件，非赛事日日均 {non_matchday_avg:.1f} 件。"
         )
+    elif matchdays:
+        matchday_total = sum(day.get("count", 0) for day in matchdays)
+        matchday_dates = ", ".join(sorted(day.get("date", "") for day in matchdays))
         lines.append(
-            f"峰值日业务热点集中在服务类型 {_tag_text(peak.get('top_service_type', []), 2)}，"
-            f"涉及业务/会员类型为 {_tag_text(peak.get('top_member_cluster', []), 2)}。"
+            f"有比赛的是 {len(matchdays)} 天（{matchday_dates}），"
+            f"赛事日合计问题量 {_n(matchday_total)} 件。"
         )
     return lines
 
@@ -1063,7 +1263,7 @@ def _supporting_quotes(items: list[dict], limit: int = 3) -> str:
 def _compact_anomaly_cards(anomalies: list[dict]) -> str:
     if not anomalies:
         return '<div class="analysis-box" data-reveal="card"><strong>异动判断</strong><p>当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。</p></div>'
-    sorted_days = _sorted_anomaly_days(anomalies)
+    sorted_days = _sorted_anomaly_days(anomalies)[:3]
     rows = []
     for day in sorted_days:
         match_text = _matchday_summary(day) if _matchday(day) else "非赛事日"
@@ -1081,8 +1281,8 @@ def _compact_anomaly_cards(anomalies: list[dict]) -> str:
             """
         )
     method = (
-        "异动口径：按服务时间 service_time 做日粒度聚合，日环比 >= 50% 且当日问题量 >= 5 件记为异动日。"
-        "排序逻辑：日环比降序，其次问题量降序，其次日期升序；以下列出全部异动日。"
+        "以上日期基于日聚合口径，日环比增长 ≥ 50% 且当日问题量 ≥ 5 件被识别为异动。"
+        "按日环比降序排列，以下列出排名前三的异动节点。"
     )
     return f'<div class="narrative-stack"><p>{_e(method)}</p></div><div class="signal-grid">{"".join(rows)}</div>'
 
@@ -1107,7 +1307,7 @@ def _trend_chart_summary(trend_view: dict[str, Any]) -> list[str]:
         matchday_avg = sum(day.get("count", 0) for day in matchdays) / len(matchdays)
         non_matchday_avg = sum(day.get("count", 0) for day in non_matchdays) / len(non_matchdays)
         lines.append(
-            f"赛事日日均问题量约为 {matchday_avg:.1f} 件，非赛事日日均约为 {non_matchday_avg:.1f} 件，便于对比赛程节点是否放大投诉波动。"
+            f"赛事日日均问题量约为 {matchday_avg:.1f} 件，非赛事日日均约为 {non_matchday_avg:.1f} 件，赛事日的投诉波动整体高于非赛事日。"
         )
 
     if anomalies:
@@ -1176,13 +1376,21 @@ def _trend_voice_summary(items: list[dict]) -> list[str]:
     return lines
 
 
-def _trend_voice_cards(items: list[dict]) -> str:
+def _trend_voice_cards(items: list[dict], narratives: dict[str, list[str]] | None = None) -> str:
     if not items:
         return '<div class="analysis-box" data-reveal="card"><strong>样例原声</strong><p>当前趋势窗口内未提取到带赛事日标注的样例原声。</p></div>'
 
+    narratives = narratives or {}
+    summary_lines = narratives.get("trend_voice_sample_summaries") or []
     cards = []
-    for item in items:
-        quotes = "".join(f'<div class="quote">{_e(sample.get("content_excerpt", ""))}</div>' for sample in item.get("samples", []))
+    for idx, item in enumerate(items):
+        samples = item.get("samples", [])
+        fallback_text = "；".join(
+            _natural_sample_summary(sample.get("content_excerpt", ""), _key_text(item.get("top_tertiary", []), 1))
+            for sample in samples[:2]
+            if sample.get("content_excerpt")
+        )
+        summary_text = _narrative_line_at(summary_lines, idx) or fallback_text or "暂无样例。"
         issue_tags = _tags(item.get("top_tertiary", []))
         cards.append(
             f"""
@@ -1195,7 +1403,7 @@ def _trend_voice_cards(items: list[dict]) -> str:
                 <span>{_n(item.get("count", 0))} 次</span>
               </div>
               <div class="chip-cloud">{issue_tags or '<span class="subtle">暂无主要问题标签。</span>'}</div>
-              <div class="voice-body">{quotes}</div>
+              <div class="voice-body"><div class="quote">{_e(summary_text)}</div></div>
             </article>
             """
         )
@@ -1263,22 +1471,19 @@ def _distribution_insights(result: dict) -> list[str]:
     if primary:
         top = primary[0]
         insights.append(
-            f"本周期共纳入 {total} 条反馈/投诉工单；一级问题中「{top['key']}」提及 {top['count']} 次，占一级标签提及量的 {_pct(_safe_ratio(top['count'], primary_total))}，标签分布基于已完成标注的工单统计。"
+            f"本周期共纳入 {total} 条反馈/投诉工单；一级问题中 {top['key']}（共{_n(top['count'])}条，占比{_pct(_safe_ratio(top['count'], primary_total))}）最集中，标签分布基于已完成标注的工单统计。"
         )
     if secondary:
         top_secondary = secondary[0]
         insights.append(
-            f"二级问题中「{top_secondary['key']}」提及 {_n(top_secondary['count'])} 次，占二级标签提及量的 {_pct(_safe_ratio(top_secondary['count'], secondary_total))}。"
+            f"二级问题中 {top_secondary['key']}（共{_n(top_secondary['count'])}条，占比{_pct(_safe_ratio(top_secondary['count'], secondary_total))}）最集中。"
         )
     if tertiary:
         top5_count = _sum_counts(tertiary[:5])
         insights.append(
-            f"三级问题 TOP5 累计提及 {top5_count} 次，占三级标签提及量的 {_pct(_safe_ratio(top5_count, tertiary_total))}；首要痛点为「{tertiary[0]['key']}」。"
+            f"三级问题 TOP5 累计提及 {_n(top5_count)} 条，占三级标签提及量的 {_pct(_safe_ratio(top5_count, tertiary_total))}；首要痛点为 {tertiary[0]['key']}（共{_n(tertiary[0]['count'])}条，占比{_pct(_safe_ratio(tertiary[0]['count'], tertiary_total))}）。"
         )
     insights.extend(_business_dimension_lines(result))
-    refund_yes = next((item["count"] for item in result.get("refund", []) if item["key"] == "是"), 0)
-    escalation_yes = next((item["count"] for item in result.get("escalation", []) if item["key"] == "是"), 0)
-    insights.append(f"风险信号方面，退费诉求 {refund_yes} 件、升级投诉倾向 {escalation_yes} 件，建议与 TOP 问题联动定位影响面。")
     return insights
 
 
@@ -1295,7 +1500,7 @@ def _trend_insights(result: dict, trend_view: dict[str, Any]) -> list[str]:
         (
             f"{peak['date']} 问题提及量达到峰值 {peak['count']} 件"
             f"{'，该日为' + peak_match if peak_match else ''}，主要问题为："
-            f"{'、'.join(item['key'] for item in peak.get('top_tertiary', [])) or '无'}。"
+            f"{_tag_text(peak.get('top_tertiary', []), 3)}。"
         ),
         (
             f"{neg_peak['date']} 负向情绪占比最高，为 {_pct(neg_peak['negative_ratio'])}"
@@ -1340,8 +1545,6 @@ def _unlabeled_dist_lines(result: dict) -> list[str]:
         lines.append(
             f"从未标注工单的内容结构看，情绪以 {_tag_text(emotion, 2)} 为主，诉求集中在 {_tag_text(customer_key_appeal, 2)}，主要渠道/终端线索为 {_tag_text(csp_name, 2)}。"
         )
-    if refund_demand or escalation:
-        lines.append(f"风险上存在退费诉求 {refund_demand} 件、升级投诉倾向 {escalation} 件，建议优先回补标签后再并入主问题池复盘。")
     return lines[:4]
 
 
@@ -1599,23 +1802,13 @@ def render_html_report(result: dict, output_path: Path) -> Path:
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
           <div>
-            <span class="chart-kicker">CAUSE CLUES</span>
-            <h3>三级问题原因线索</h3>
+            <span class="chart-kicker">CAUSE & VOICE</span>
+            <h3>三级问题原因线索、样例原声与典型案例</h3>
           </div>
         </div>
         {_narrative_stack(narratives.get("cause_summary"))}
-      </section>
-      <section class="chart-card chart-grid-voice" data-reveal="card">
-        <div class="chart-header">
-          <div>
-            <span class="chart-kicker">USER VOICE & CASE</span>
-            <h3>样例原声与典型案例</h3>
-          </div>
-        </div>
         {_narrative_stack(narratives.get("voice_summary"))}
-        <div class="voice-grid">{_supporting_quotes(result.get("top_tertiary_examples", []))}</div>
-        {_narrative_stack(narratives.get("case_summary"))}
-        {_case_cards(result)}
+        {_merged_cause_voice_table(result, narratives)}
       </section>
     </section>
     """
@@ -1636,7 +1829,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         </div>
         {_narrative_stack(narratives.get("trend_conclusion") or _trend_insights(result, trend_view))}
       </div>
-      {_unlabeled_card_html(narratives.get("unlabeled_trend_summary") or _unlabeled_trend_lines(result), title="未标注一二三级标签工单时间趋势")}
       {_trend_svg(trend_view.get("days", []), focus_note=trend_view.get("note"))}
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
@@ -1655,7 +1847,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
           </div>
         </div>
         {_narrative_stack(trend_voice_summary)}
-        {_trend_voice_cards(trend_voice_items)}
+        {_trend_voice_cards(trend_voice_items, narratives)}
       </section>
       <section class="chart-card" data-reveal="card">
         <div class="chart-header">
@@ -2543,6 +2735,23 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     .table-scroll {
       overflow-x: auto;
       padding-bottom: 4px;
+      max-width: 100%;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-scroll-wide {
+      margin-top: 14px;
+      padding-bottom: 10px;
+    }
+    .table-scroll-wide::-webkit-scrollbar {
+      height: 10px;
+    }
+    .table-scroll-wide::-webkit-scrollbar-track {
+      background: var(--muted);
+      border-radius: 999px;
+    }
+    .table-scroll-wide::-webkit-scrollbar-thumb {
+      background: rgba(0,82,255,0.42);
+      border-radius: 999px;
     }
     .data-table {
       width: 100%;
@@ -2553,6 +2762,13 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     .drilldown-table {
       min-width: 1280px;
     }
+    .cause-voice-table {
+      min-width: 2080px;
+      table-layout: fixed;
+    }
+    .cause-voice-table .cause-col-issue { width: 210px; }
+    .cause-voice-table .cause-col-count { width: 110px; }
+    .cause-voice-table .cause-col-summary { width: 586px; }
     .data-table th,
     .data-table td {
       padding: 12px 12px;
@@ -2765,9 +2981,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         <div class="section-label"><span class="pulse-dot"></span><strong>{_e(focus_label)}</strong></div>
          <h1>视频业务用户反馈<span class="gradient-text">{_e(focus_title)}</span></h1>
         <p class="lead">{_e(focus_description)}</p>
-        <p class="subtle hero-meta">报告周期：{_e(period_start)} 至 {_e(period_end)}</p>
-        {analysis_line}
-        {trend_window_line}
+        <p class="subtle hero-meta">报告周期：{_e(period_start[:10]) if len(period_start) > 10 else _e(period_start)} 至 {_e(period_end[:10]) if len(period_end) > 10 else _e(period_end)}</p>
       </div>
       <div class="hero-visual">
         <div class="hero-glow"></div>
@@ -2788,7 +3002,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
       </div>
     </section>
 
-    {summary_section}
 
     <section class="kpis">
       {"".join(f'<article class="kpi"><div class="label">{_e(item["label"])}</div><div class="value">{_e(item["value"])}</div></article>' for item in kpis)}

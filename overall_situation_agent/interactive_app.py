@@ -43,6 +43,10 @@ DATA_QUERY_TERMS = [
     "反馈",
     "数据",
     "查询",
+    "top",
+    "TOP",
+    "前五",
+    "前5",
     "多少",
     "几条",
     "有哪些",
@@ -70,6 +74,11 @@ DATA_QUERY_TERMS = [
     "标签组",
     "客服动作",
     "客服处理",
+    "客服回复",
+    "处理意见",
+    "客户诉求",
+    "原因",
+    "短板",
     "年龄",
     "性别",
     "使用体验",
@@ -367,7 +376,7 @@ class InteractiveOverallSituationApp:
             last_query_dsl=self.state.last_query_dsl,
         )
         logger.info("ES query plan: %s", intent.get("explanation"))
-        results = self.es_query_builder.execute_query(intent["query"])
+        results = self.es_query_builder.execute_intent(intent)
         parsed_results = self.es_query_builder.parse_results(results, intent)
         result_summary = self.es_query_builder.summarize_results(parsed_results)
         answer = self.es_query_builder.analyze_results(

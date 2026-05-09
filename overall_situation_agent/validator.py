@@ -57,7 +57,6 @@ def validate_html_report_for_focus(path: Path, section_focus: str = "full") -> V
     lower = html.lower()
     if section_focus == "distribution":
         required = [
-            "核心摘要",
             "1.1 问题分布概览",
             "一级标签类型分布",
             "二级标签类型分布",
@@ -66,12 +65,10 @@ def validate_html_report_for_focus(path: Path, section_focus: str = "full") -> V
             "一级问题概览",
             "二级问题概览",
             "三级问题概览",
-            "三级问题原因线索",
-            "样例原声与典型案例",
+            "三级问题原因线索、样例原声与典型案例",
         ]
     elif section_focus == "trend":
         required = [
-            "核心摘要",
             "1.2 投诉趋势与异动表现",
             "每日问题提及量与负向情绪占比",
             "图表分析总结",

@@ -36,9 +36,9 @@ class Settings:
     llm_model: str = "deepseek-chat"
     llm_timeout_seconds: int = 45
     llm_max_retries: int = 2
-    llm_report_timeout_seconds: int = 12
-    llm_report_max_retries: int = 0
-    llm_report_max_tokens: int = 2500
+    llm_report_timeout_seconds: int = 60
+    llm_report_max_retries: int = 1
+    llm_report_max_tokens: int = 4000
     llm_report_enabled: bool = False
     import_batch_size: int = 500
     outputs_dir: Path = Path("outputs")
@@ -56,6 +56,11 @@ def load_settings(project_dir: Path | None = None) -> Settings:
     password = os.getenv("ES_PASSWORD") or None
     verify_certs = (os.getenv("ES_VERIFY_CERTS", "false").lower() == "true")
     project_root = project_dir or Path.cwd()
+    llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or None
+    llm_timeout = int(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+    llm_retries = int(os.getenv("LLM_MAX_RETRIES", "2"))
+    report_enabled_raw = os.getenv("LLM_REPORT_ENABLED")
+    report_enabled = bool(llm_api_key) if report_enabled_raw is None else report_enabled_raw.lower() == "true"
 
     outputs_dir = Path(os.getenv("OUTPUTS_DIR", project_root / "outputs"))
     logs_dir = Path(os.getenv("LOGS_DIR", project_root / "logs"))
@@ -74,14 +79,14 @@ def load_settings(project_dir: Path | None = None) -> Settings:
         es_password=password,
         es_verify_certs=verify_certs,
         llm_base_url=os.getenv("LLM_BASE_URL", "https://api.deepseek.com").rstrip("/"),
-        llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or None,
+        llm_api_key=llm_api_key,
         llm_model=os.getenv("LLM_MODEL", "deepseek-chat"),
-        llm_timeout_seconds=int(os.getenv("LLM_TIMEOUT_SECONDS", "45")),
-        llm_max_retries=int(os.getenv("LLM_MAX_RETRIES", "2")),
-        llm_report_timeout_seconds=int(os.getenv("LLM_REPORT_TIMEOUT_SECONDS", "12")),
-        llm_report_max_retries=int(os.getenv("LLM_REPORT_MAX_RETRIES", "0")),
-        llm_report_max_tokens=int(os.getenv("LLM_REPORT_MAX_TOKENS", "2500")),
-        llm_report_enabled=os.getenv("LLM_REPORT_ENABLED", "false").lower() == "true",
+        llm_timeout_seconds=llm_timeout,
+        llm_max_retries=llm_retries,
+        llm_report_timeout_seconds=int(os.getenv("LLM_REPORT_TIMEOUT_SECONDS", "60")),
+        llm_report_max_retries=int(os.getenv("LLM_REPORT_MAX_RETRIES", "1")),
+        llm_report_max_tokens=int(os.getenv("LLM_REPORT_MAX_TOKENS", "4000")),
+        llm_report_enabled=report_enabled,
         import_batch_size=int(os.getenv("IMPORT_BATCH_SIZE", "500")),
         outputs_dir=outputs_dir,
         logs_dir=logs_dir,

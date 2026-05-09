@@ -25,7 +25,8 @@ class OpenAICompatibleClient:
     """Minimal OpenAI-compatible chat-completions client, tested for DeepSeek-style endpoints."""
 
     def __init__(self, settings: Settings):
-        self.base_url = settings.llm_base_url.rstrip("/")
+        base_url = settings.llm_base_url.rstrip("/")
+        self.base_url = base_url if base_url.endswith("/v1") else f"{base_url}/v1"
         self.api_key = settings.llm_api_key
         self.model = settings.llm_model
         self.timeout = settings.llm_timeout_seconds
@@ -59,7 +60,7 @@ class OpenAICompatibleClient:
         if max_tokens is not None and max_tokens > 0:
             request_body["max_tokens"] = max_tokens
         payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
-        url = f"{self.base_url}/v1/chat/completions"
+        url = f"{self.base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",

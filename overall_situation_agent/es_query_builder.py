@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from .es_client import ElasticsearchError, SimpleElasticsearch
+from .evidence import EVIDENCE_SOURCE_FIELDS, MAX_EVIDENCE_PAYLOAD_CHARS, build_tertiary_evidence_package
 from .llm_client import OpenAICompatibleClient, parse_json_object
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ ALLOWED_FIELDS = {
     "customer_key_appeal.keyword",
     "content",
     "content.keyword",
+    "cs_reply",
+    "cs_reply.keyword",
     "complaint_content",
     "complaint_content.keyword",
     "province_name",
@@ -80,9 +83,12 @@ DEFAULT_SOURCE_FIELDS = [
     "scene_service_type",
     "scene_event",
     "customer_key_appeal",
+    "customer_keywords",
     "content",
+    "cs_reply",
     "operation_action",
     "cs_key_action",
+    "cs_keywords",
     "latent_need",
     "latent_need_reason",
     "biz_member_cluster",
@@ -194,6 +200,8 @@ DISTRIBUTION_TERMS = ("分布", "占比", "多少", "数量", "有哪些", "排�
 TREND_TERMS = ("趋势", "峰值", "异动", "按天", "date_histogram", "聚合验证", "完整聚合")
 FOLLOWUP_TERMS = ("刚才", "上一个", "上一条", "你说的", "按照你说的", "继续", "验证", "这个", "那个", "该")
 DETAIL_TERMS = ("有哪些", "明细", "样例", "案例", "相关投诉", "相关工单", "怎么导致", "为什么")
+TOP_TERMS = ("top", "TOP", "前五", "前5", "五个", "5个", "最多", "排名", "排行", "高频")
+CAUSE_TERMS = ("为什么", "原因", "归因", "短板", "问题", "诉求", "客服", "处理", "分析")
 KNOWN_OPERATIONS = (
     "会员促销活动",
     "高阶赛事数据展示",
@@ -227,10 +235,13 @@ SYSTEM_PROMPT = """
 - scene_event: 事件类型
 - customer_key_appeal: 用户核心诉求
 - customer_key_appeal.keyword: 用户核心诉求精确聚合字段
+- customer_keywords: 用户诉求关键词
 - cs_key_action: 客服关键处理动作
 - cs_key_action.keyword: 客服关键处理动作精确聚合字段
+- cs_keywords: 客服处理关键词
 - content: 反馈内容
 - content.keyword: 反馈内容精确聚合字段
+- cs_reply: 处理意见/客服回复
 - province_name: 省份
 - has_refund_demand: 是否有退费诉求
 - has_escalation: 是否有升级投诉倾向
@@ -289,6 +300,14 @@ ANALYSIS_PROMPT = """
 6. 峰值日、占比、TOP 标签等关键数字优先使用 result_summary，不要把 hits 样本当作全量统计。
 7. 即使历史中已经回答过相似问题，也必须基于当前 payload 重新给出本次查询的关键数字和结论；不要只说"已展示""如需进一步分析"。
 8. 如果用户问题明显不是数据查询问题（如询问对话历史、闲聊、问你是谁），请直接指出该问题不属于数据查询，并建议用户重新提问。不要强行生成数据回答。
+9. 当 intent_metadata.intent_type 为 tertiary_top_cause_analysis，必须按固定结构回答：先列 TOP5 三级标签排序（数量+占比），再逐个解释为什么高频，最后总结共性产品/服务短板。
+10. 做三级标签原因分析时，要结合 evidence_package.items 下每个标签的 content、cs_reply、customer_key_appeal、customer_keywords、cs_key_action、cs_keywords；不要把 ES 聚合本身说成“原因”，ES 只提供证据。
+    对每个 TOP5 三级标签必须分成三组写：
+    - 工单内容与客服回复：总结工单内容反复出现的问题场景，以及客服回复主要如何解释、核查、退费、记录或转派；
+    - 客户关键诉求与客户诉求关键词：总结 customer_key_appeal 与 customer_keywords 反映的真实诉求，不要只罗列关键词；
+    - 客服关键处理动作与客服处理关键词：总结 cs_key_action 与 cs_keywords 体现的处理路径，并说明这种处理方式为什么会让该类问题持续高频。
+    每个三级标签不少于 3 个要点，每个要点 1-2 句，整体分析不能过短。
+11. 禁止粘贴原始 JSON、整段对话、客服原文或用户原句；即便是短句也不要用引号复述原文，只能把样例中的用户表述和客服处理动作提炼成自然语言原因，例如“用户集中要求退订并退款，但客服侧多为解释规则、提交核查或引导等待，导致同类投诉反复出现”。
 """.strip()
 
 
@@ -368,6 +387,9 @@ class ESQueryBuilder:
         if contextual:
             return self._finalize_intent(contextual)
 
+        if self._is_tertiary_top_cause_question(q):
+            return self._finalize_intent(self._tertiary_top_cause_intent(q))
+
         if any(term in q for term in TREND_TERMS):
             return self._finalize_intent(self._trend_intent(q, last_query_dsl=last_query_dsl))
 
@@ -428,7 +450,34 @@ class ESQueryBuilder:
         )
         return payload
 
+    def execute_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
+        if (intent.get("metadata") or {}).get("intent_type") == "tertiary_top_cause_analysis":
+            if not self.es.indices.exists(index=self.index_name):
+                raise ElasticsearchError(f"Elasticsearch 索引不存在：{self.index_name}")
+            query = (intent.get("query") or {}).get("query") or {"match_all": {}}
+            return {
+                "_evidence_package": build_tertiary_evidence_package(
+                    self.es,
+                    self.index_name,
+                    query,
+                    top_n=5,
+                )
+            }
+        return self.execute_query(intent["query"])
+
     def parse_results(self, results: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
+        if "_evidence_package" in results:
+            package = results.get("_evidence_package") or {}
+            return {
+                "took": None,
+                "timed_out": False,
+                "hits_total": package.get("doc_total", 0),
+                "hits": [],
+                "aggregations": {},
+                "evidence_package": package,
+                "explanation": intent.get("explanation"),
+                "expected_fields": intent.get("expected_fields", []),
+            }
         hits = results.get("hits", {})
         total = hits.get("total", 0)
         total_value = total.get("value", 0) if isinstance(total, dict) else total
@@ -443,6 +492,8 @@ class ESQueryBuilder:
         }
 
     def summarize_results(self, parsed_results: dict[str, Any]) -> dict[str, Any]:
+        if parsed_results.get("evidence_package"):
+            return self._summarize_evidence_package(parsed_results["evidence_package"])
         aggregations = parsed_results.get("aggregations") or {}
         summaries = []
         for name, agg in aggregations.items():
@@ -453,6 +504,61 @@ class ESQueryBuilder:
             "timed_out": parsed_results.get("timed_out", False),
             "aggregations": summaries,
             "sample_count": len(parsed_results.get("hits", [])),
+        }
+
+    def _summarize_evidence_package(self, package: dict[str, Any]) -> dict[str, Any]:
+        items = []
+        for item in package.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            children = {}
+            for key in ("top_customer_appeals", "top_customer_keywords", "top_cs_actions", "top_cs_keywords"):
+                buckets = []
+                for bucket in item.get(key, [])[:10]:
+                    if not isinstance(bucket, dict):
+                        continue
+                    buckets.append(
+                        {
+                            "key": bucket.get("key"),
+                            "count": int(bucket.get("count") or 0),
+                        }
+                    )
+                if buckets:
+                    children[key] = buckets
+            row = {
+                "key": item.get("key"),
+                "count": int(item.get("count") or 0),
+                "share": float(item.get("share") or 0),
+                "sample_count": len(item.get("samples") or []),
+            }
+            if children:
+                row["children"] = children
+            items.append(row)
+
+        sample_count = sum(int(item.get("sample_count") or 0) for item in items)
+        return {
+            "executed": True,
+            "hits_total": int(package.get("doc_total") or 0),
+            "timed_out": False,
+            "evidence_package": {
+                "intent_type": package.get("intent_type"),
+                "tertiary_total": int(package.get("tertiary_total") or 0),
+                "top_n": int(package.get("top_n") or 0),
+                "samples_per_label": int(package.get("samples_per_label") or 0),
+                "sample_strategy": package.get("sample_strategy") or {},
+            },
+            "aggregations": [
+                {
+                    "name": "top_tertiary_cause_analysis",
+                    "type": "terms",
+                    "source_field": "tertiary_labels",
+                    "bucket_total": int(package.get("tertiary_total") or 0),
+                    "share_denominator": int(package.get("tertiary_total") or 0) or 1,
+                    "top": items[0] if items else None,
+                    "items": items,
+                }
+            ],
+            "sample_count": sample_count,
         }
 
     def _finalize_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
@@ -481,6 +587,41 @@ class ESQueryBuilder:
             "explanation": f"按 {spec['label']} 统计分布，并返回各桶数量用于计算占比。",
             "expected_fields": [spec["field"]],
             "metadata": {"deterministic": True, "aggregation_field": spec["field"]},
+        }
+
+    def _is_tertiary_top_cause_question(self, question: str) -> bool:
+        if "三级" not in question and "tertiary" not in question.lower():
+            return False
+        if not any(term in question for term in TOP_TERMS):
+            return False
+        return any(term in question for term in CAUSE_TERMS)
+
+    def _tertiary_top_cause_intent(self, question: str) -> dict[str, Any]:
+        filters = self._question_filters(question)
+        body = {
+            "size": 0,
+            "query": self._filter_query(filters),
+            "aggs": {
+                "top_tertiary_cause_analysis": {
+                    "terms": {
+                        "field": "tertiary_labels",
+                        "size": 5,
+                    }
+                }
+            },
+        }
+        return {
+            "query": body,
+            "explanation": (
+                "先统计数量最多的五个三级标签；执行阶段会为每个 TOP 三级标签继续抽取工单内容、客服回复、"
+                "客户诉求和客服处理动作证据包，再用于原因分析。"
+            ),
+            "expected_fields": EVIDENCE_SOURCE_FIELDS,
+            "metadata": {
+                "deterministic": True,
+                "intent_type": "tertiary_top_cause_analysis",
+                "aggregation_field": "tertiary_labels",
+            },
         }
 
     def _trend_intent(self, question: str, last_query_dsl: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -676,13 +817,19 @@ class ESQueryBuilder:
             "index_name": self.index_name,
             "question": question,
             "query_explanation": intent.get("explanation"),
+            "intent_metadata": intent.get("metadata", {}),
             "query_dsl": intent.get("query"),
             "result_summary": result_summary,
             "results": parsed_results,
         }
         payload_text = json.dumps(payload, ensure_ascii=False)
-        if len(payload_text) > 12000:
-            payload_text = payload_text[:12000] + "...(已截断)"
+        payload_limit = (
+            MAX_EVIDENCE_PAYLOAD_CHARS
+            if (intent.get("metadata") or {}).get("intent_type") == "tertiary_top_cause_analysis"
+            else 12000
+        )
+        if len(payload_text) > payload_limit:
+            payload_text = payload_text[:payload_limit] + "...(已截断)"
 
         response = self.llm.chat(
             [
@@ -999,6 +1146,9 @@ class ESQueryBuilder:
     def _format_summary_answer(self, result_summary: dict[str, Any]) -> str:
         aggregations = result_summary.get("aggregations") or []
         for agg in aggregations:
+            if isinstance(agg, dict) and agg.get("name") == "top_tertiary_cause_analysis":
+                return self._format_tertiary_cause_answer(agg, int(result_summary.get("hits_total") or 0))
+        for agg in aggregations:
             if isinstance(agg, dict) and agg.get("type") == "date_histogram":
                 return self._format_date_histogram_answer(agg)
         for agg in aggregations:
@@ -1014,6 +1164,26 @@ class ESQueryBuilder:
         for item in items[:15]:
             share = float(item.get("share") or 0) * 100
             lines.append(f"- {item.get('key')}：{item.get('count')} 条，占比 {share:.2f}%")
+        return "\n".join(lines)
+
+    def _format_tertiary_cause_answer(self, agg: dict[str, Any], hits_total: int) -> str:
+        items = [item for item in agg.get("items", []) if isinstance(item, dict)]
+        if not items:
+            return ""
+        lines = [f"查询已执行，共命中 {hits_total} 条。数量最多的五个三级标签为："]
+        for index, item in enumerate(items[:5], start=1):
+            count = int(item.get("count") or 0)
+            share = float(item.get("share") or 0) * 100
+            lines.append(f"{index}. {item.get('key')}：{count} 条，占比 {share:.2f}%")
+            children = item.get("children") if isinstance(item.get("children"), dict) else {}
+            appeals = "、".join(str(bucket.get("key")) for bucket in children.get("top_customer_appeals", [])[:3]) or "无"
+            customer_keywords = "、".join(str(bucket.get("key")) for bucket in children.get("top_customer_keywords", [])[:4]) or "无"
+            cs_actions = "、".join(str(bucket.get("key")) for bucket in children.get("top_cs_actions", [])[:3]) or "无"
+            cs_keywords = "、".join(str(bucket.get("key")) for bucket in children.get("top_cs_keywords", [])[:4]) or "无"
+            lines.append("   - 工单内容与客服回复：已抽取该标签下代表性工单正文和客服回复，启用 DeepSeek 时会进一步压缩为自然语言场景总结。")
+            lines.append(f"   - 客户关键诉求与客户诉求关键词：主要客户诉求为 {appeals}；诉求关键词集中在 {customer_keywords}。")
+            lines.append(f"   - 客服关键处理动作与客服处理关键词：客服处理动作集中在 {cs_actions}；处理关键词集中在 {cs_keywords}。")
+        lines.append("当前未启用大模型时只能给出结构化原因线索；启用 DeepSeek 后会把样例工单和客服回复整合成自然语言原因分析。")
         return "\n".join(lines)
 
     def _format_date_histogram_answer(self, agg: dict[str, Any]) -> str:

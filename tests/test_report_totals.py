@@ -49,13 +49,17 @@ def _result() -> dict:
                 "key": "权益无法兑换",
                 "count": 8,
                 "top_appeals": [{"key": "要求解决权益", "count": 3}],
+                "top_customer_keywords": [{"key": "电视端", "count": 2}, {"key": "会员权益", "count": 1}],
+                "top_cs_actions": [{"key": "记录并核查", "count": 2}],
+                "top_cs_keywords": [{"key": "核查", "count": 2}, {"key": "反馈", "count": 1}],
                 "samples": [
                     {
                         "appeal": "要求解决权益",
+                        "cs_reply": "客服记录问题并提交核查，后续反馈处理结果。",
                         "operation_action": "不应展示的运营举措",
                         "biz_member_cluster": "不应展示的会员类型",
                         "latent_need": "不应展示的隐性需求",
-                        "content_excerpt": "用户反馈权益无法兑换，希望尽快处理。",
+                        "content_excerpt": '[{"发送方":"话务员","消息内容":"正在为您转接人工，请稍后..."},{"发送方":"用户","消息内容":"电视端无法使用已购买会员，要求尽快处理权益兑换问题"}]',
                     }
                 ],
             }
@@ -71,6 +75,11 @@ class ReportTotalTests(unittest.TestCase):
         self.assertIn("14", insights[0])
         self.assertNotIn("10 条已标注", insights[0])
         self.assertTrue(any("业务维度" in line for line in insights))
+        text = "\n".join(insights)
+        self.assertIn("业务体验（共10条，占比100.0%）", text)
+        self.assertIn("权益使用（共10条，占比100.0%）", text)
+        self.assertIn("权益无法兑换（共8条，占比100.0%）", text)
+        self.assertNotIn("业务体验（10）", text)
 
     def test_markdown_header_uses_overall_total(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -117,6 +126,17 @@ class ReportTotalTests(unittest.TestCase):
         self.assertIn("样例原声与典型案例", content)
         self.assertNotIn("样例原声与原因研判", content)
         self.assertNotIn("#### 典型案例", content)
+        self.assertIn("<td>8条</td>", content)
+        self.assertIn("| 权益无法兑换 | 8条 |", content)
+        self.assertIn("工单内容与客服回复总结", content)
+        self.assertIn("客户诉求与关键词总结", content)
+        self.assertIn("客服处理动作与关键词总结", content)
+        self.assertNotIn("<td>共8条，占比", content)
+        self.assertNotIn("| 权益无法兑换 | 共8条，占比", content)
+        self.assertNotIn("高频诉求", content)
+        self.assertNotIn("样例摘要 |", content)
+        self.assertNotIn("消息内容", content)
+        self.assertIn("用户围绕「权益无法兑换」主要反馈电视端或投屏观看权益受阻", content)
 
     def test_trend_insights_include_schedule_labels_and_business_dimension(self) -> None:
         result = _result()
@@ -131,12 +151,12 @@ class ReportTotalTests(unittest.TestCase):
 
         text = "\n".join(_trend_insights(result, trend_view))
 
-        self.assertIn("赛程.xlsx", text)
-        self.assertIn("赛事日标注", text)
-        self.assertIn("一级", text)
-        self.assertIn("二级", text)
-        self.assertIn("三级", text)
-        self.assertIn("业务热点", text)
+        self.assertIn("有比赛的是", text)
+        self.assertIn("赛事日合计问题量", text)
+        self.assertNotIn("已加载赛程文件", text)
+        self.assertNotIn("赛事日标注", text)
+        self.assertNotIn("当日一级/二级/三级热点", text)
+        self.assertNotIn("峰值日业务热点", text)
 
     def test_anomaly_cards_show_all_days_sorted_by_growth_count_date(self) -> None:
         anomalies = [
@@ -177,11 +197,12 @@ class ReportTotalTests(unittest.TestCase):
 
         html = _compact_anomaly_cards(anomalies)
 
-        self.assertIn("日环比 &gt;= 50%", html)
-        self.assertIn("全部异动日", html)
+        self.assertIn("日环比增长 ≥ 50%", html)
+        self.assertIn("排名前三的异动节点", html)
         self.assertLess(html.index("2026-03-07"), html.index("2026-03-06"))
         self.assertLess(html.index("2026-03-06"), html.index("2026-03-08"))
-        self.assertIn("赛事日标注", html)
+        self.assertNotIn("service_time", html)
+        self.assertNotIn("全部异动日", html)
         self.assertIn("主要一级问题", html)
         self.assertIn("业务热点", html)
 

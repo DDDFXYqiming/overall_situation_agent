@@ -48,6 +48,7 @@ class SimpleIndicesClient:
             "DELETE",
             f"/{index}",
             params={"timeout": "180s", "master_timeout": "180s", "ignore_unavailable": "true"},
+            timeout_seconds=300,
         )
         return SimpleResponse(payload)
 

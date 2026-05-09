@@ -42,6 +42,16 @@ class OpenAICompatibleClientTests(unittest.TestCase):
         self.assertEqual(captured_payloads[0][1], 7)
         self.assertEqual(captured_payloads[0][0]["max_tokens"], 123)
 
+    def test_base_url_accepts_config_with_or_without_v1_suffix(self) -> None:
+        self.assertEqual(
+            OpenAICompatibleClient(Settings(llm_base_url="https://api.deepseek.com", llm_api_key="k")).base_url,
+            "https://api.deepseek.com/v1",
+        )
+        self.assertEqual(
+            OpenAICompatibleClient(Settings(llm_base_url="https://api.deepseek.com/v1", llm_api_key="k")).base_url,
+            "https://api.deepseek.com/v1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

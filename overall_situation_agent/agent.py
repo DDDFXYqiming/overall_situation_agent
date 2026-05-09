@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .aggregations import run_overall_aggregations
 from .config import Settings
 from .es_client import create_es_client, ensure_index
+from .import_state import (
+    ImportManifest,
+    build_import_manifest,
+    build_import_state,
+    load_import_state,
+    save_import_state,
+)
 from .importer import import_excel_to_es
-from .import_state import ImportManifest, build_import_manifest, build_import_state, load_import_state, save_import_state
 from .llm_client import OpenAICompatibleClient
 from .markdown_renderer import render_markdown_report
 from .narrative_builder import build_report_narratives
 from .report import render_html_report
 from .schedule_loader import enrich_result_with_schedule, load_schedule_context
 from .validator import validate_html_report_for_focus, validate_report_result
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +58,21 @@ def _input_files(input_path: Path) -> list[Path]:
     return [input_path]
 
 
+def _state_matches_input(
+    cached_state: ImportManifest | object | None,
+    input_path: Path,
+    input_files: list[Path],
+    es_index: str,
+) -> bool:
+    if not cached_state:
+        return False
+    if isinstance(cached_state, ImportManifest):
+        return cached_state.matches(input_path, es_index) and cached_state.matches_files(input_files, es_index)
+    return len(input_files) == 1 and bool(cached_state.matches(input_files[0], es_index))
+
+
 class OverallSituationAgent:
-    """Small single-purpose Agent for report section 一、整体情况."""
+    """Single-purpose Agent for report section 一、整体情况."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -65,21 +84,20 @@ class OverallSituationAgent:
         input_files = _input_files(input_path)
         if not input_files:
             return ImportResult(0, False, f"未找到可导入的 Excel 文件：{input_path}")
+
         cached_state = load_import_state(self.settings.import_state_file)
         if self.es.indices.exists(index=self.settings.es_index):
-            current_count = int(self.es.count(self.settings.es_index).body.get("count", 0) or 0)
+            current_count = int(self.es.count(index=self.settings.es_index).body.get("count", 0) or 0)
         else:
             current_count = 0
 
-        if (
-            not recreate_index
-            and current_count > 0
-            and cached_state
-            and (
-                (isinstance(cached_state, ImportManifest) and cached_state.matches_files(input_files, self.settings.es_index))
-                or (len(input_files) == 1 and cached_state.matches(input_files[0], self.settings.es_index))
-            )
-        ):
+        state_matches_input = _state_matches_input(
+            cached_state,
+            input_path,
+            input_files,
+            self.settings.es_index,
+        )
+        if not recreate_index and current_count > 0 and state_matches_input:
             logger.info(
                 "Skipping import for %s because the same source file is already loaded into %s",
                 input_path,
@@ -91,7 +109,14 @@ class OverallSituationAgent:
                 f"检测到相同源文件已导入索引 [{self.settings.es_index}]，跳过重复导入。",
             )
 
-        ensure_index(self.es, self.settings.es_index, recreate=recreate_index)
+        effective_recreate = recreate_index or bool(current_count > 0 and cached_state and not state_matches_input)
+        if effective_recreate and not recreate_index:
+            logger.info(
+                "Recreating index %s because cached source differs from requested input %s",
+                self.settings.es_index,
+                input_path,
+            )
+        ensure_index(self.es, self.settings.es_index, recreate=effective_recreate)
         states = []
         total_count = 0
         details = []
@@ -109,7 +134,11 @@ class OverallSituationAgent:
         state = states[0] if len(states) == 1 else build_import_manifest(input_path, self.settings.es_index, states)
         save_import_state(self.settings.import_state_file, state)
         detail_text = "；".join(details)
-        return ImportResult(total_count, True, f"已导入 {total_count} 条记录到索引 [{self.settings.es_index}]。{detail_text}")
+        return ImportResult(
+            total_count,
+            True,
+            f"已导入 {total_count} 条记录到索引 [{self.settings.es_index}]。{detail_text}",
+        )
 
     def analyze(
         self,
