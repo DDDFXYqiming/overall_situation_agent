@@ -1,24 +1,24 @@
 # Overall Situation Agent
 
-A local Python tool for turning structured spreadsheet records into a summarized HTML/Markdown report.
+A full-featured local Python agent for turning spreadsheet records into a summarized HTML/Markdown report.
 
-The project is designed for private, local analysis workflows. It reads local spreadsheet files, stores normalized records in Elasticsearch, runs deterministic aggregations, enriches trend data with schedule context, samples evidence for high-frequency tertiary labels, and uses an OpenAI-compatible LLM endpoint for report narratives and interactive data questions.
+This edition keeps deterministic aggregation and report generation while adding interactive chat and local API/SSE server layers.
 
 ## Features
 
 - Import one spreadsheet file or a directory of spreadsheet files.
-- Normalize common tabular inputs into an Elasticsearch index.
-- Generate local HTML and Markdown reports through one deterministic aggregation and rendering flow.
-- Run an interactive command-line chat mode with `/help`, `/context`, `/report`, normal LLM replies, and read-only Elasticsearch data queries.
+- Normalize tabular records into an Elasticsearch index.
+- Generate local HTML and Markdown reports from Elasticsearch aggregations.
+- Apply OpenAI-compatible LLM narrative generation for report wording.
+- Support date-range filtering and optional schedule-context annotation.
+- Run an interactive command-line chat mode with read-only Elasticsearch data queries.
 - Serve synchronous and job/SSE HTTP APIs for import, report, run, and chat workflows.
-- Keep generated outputs, logs, and local credentials outside version control.
-- Filter and analyze unlabeled records (missing primary labels) separately with multi-dimensional clustering (emotion, province, CSP, operation, latent needs, appeals) and time-trend analysis, rendered as independent dashed-border cards in the report.
 
 ## Requirements
 
 - Python 3.9+
 - Local Elasticsearch instance
-- OpenAI-compatible LLM API key for report narratives and interactive data questions
+- OpenAI-compatible LLM API key
 
 ## Setup
 
@@ -37,20 +37,12 @@ LLM_API_KEY=
 LLM_REPORT_ENABLED=true
 ```
 
-Do not commit `.env`, generated outputs, logs, or private datasets.
-
 ## Usage
 
 Import data:
 
 ```powershell
 python -m overall_situation_agent.cli import --input "<spreadsheet-or-directory>" --recreate-index
-```
-
-Start interactive mode:
-
-```powershell
-python -m overall_situation_agent.cli chat --schedule-input "<schedule-file.xlsx>"
 ```
 
 Generate a report:
@@ -62,7 +54,19 @@ python -m overall_situation_agent.cli report
 Run import and report generation together:
 
 ```powershell
-python -m overall_situation_agent.cli run --input "<spreadsheet-or-directory>" --schedule-input "<schedule-file.xlsx>"
+python -m overall_situation_agent.cli run --input "<spreadsheet-or-directory>"
+```
+
+Run with date filters and schedule input:
+
+```powershell
+python -m overall_situation_agent.cli run --input "<spreadsheet-or-directory>" --start-date 2026-01-01 --end-date 2026-01-31 --schedule-input "<schedule-file.xlsx>"
+```
+
+Start interactive chat:
+
+```powershell
+python -m overall_situation_agent.cli chat --schedule-input "<schedule-file.xlsx>"
 ```
 
 Start the local API server:
@@ -71,21 +75,34 @@ Start the local API server:
 python -m overall_situation_agent.cli serve --host 127.0.0.1 --port 8000
 ```
 
-Primary API routes:
+Generated files are written to `outputs/` by default.
+
+## Configuration
+
+Important environment variables:
+
+- `ES_URL`, `ES_INDEX`, `ES_USERNAME`, `ES_PASSWORD`, `ES_VERIFY_CERTS`
+- `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `DEEPSEEK_API_KEY`
+- `LLM_REPORT_ENABLED`, `LLM_REPORT_TIMEOUT_SECONDS`, `LLM_REPORT_MAX_RETRIES`, `LLM_REPORT_MAX_TOKENS`
+- `IMPORT_BATCH_SIZE`, `OUTPUTS_DIR`, `LOGS_DIR`, `IMPORT_STATE_FILE`
+
+## API Routes
 
 - `GET /health`
 - `POST /api/import`, `POST /api/report`, `POST /api/run`, `POST /api/chat`
 - `POST /api/jobs/import`, `POST /api/jobs/report`, `POST /api/jobs/run`, `POST /api/jobs/chat`
 - `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/events`
 
-Generated files are written to `outputs/` by default.
+## Differences From Simple Edition
 
-## Notes
-
-- Report generation requires `LLM_REPORT_ENABLED=true` and an available `LLM_API_KEY` or `DEEPSEEK_API_KEY`.
-- Statistics and counts come from Elasticsearch aggregations; the LLM only writes narrative analysis.
-- `chat` is a custom local CLI orchestrator, not a LangChain agent.
+- Added: interactive chat mode and query-builder conversation flow.
+- Added: local API server dependencies and runtime path.
+- Added: synchronous and job/SSE HTTP APIs.
+- Kept: import pipeline, deterministic aggregations, schedule-context support, evidence sampling, report rendering, and LLM narrative generation.
+- Available commands: `import`, `report`, `run`, `chat`, `serve`.
 
 ## Repository Hygiene
 
-The repository intentionally excludes local secrets, generated reports, logs, caches, and internal notes. Public documentation is kept generic so the code can be reviewed without exposing private data structures or usage context.
+This public repository intentionally excludes secrets, local environment files, generated outputs, private datasets, and internal working notes.
+
+Examples and descriptions are anonymized to avoid exposing sensitive business terms or source data context.
