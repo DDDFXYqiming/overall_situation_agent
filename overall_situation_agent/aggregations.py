@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .es_client import SimpleElasticsearch
-from .evidence import build_tertiary_evidence_package
 from .schema import NEGATIVE_EMOTIONS
 
 
@@ -15,7 +14,6 @@ def _date_filter(start_date: str | None, end_date: str | None) -> list[dict]:
     if start_date:
         range_query["gte"] = start_date
     if end_date:
-        # Treat user input as inclusive natural day.
         end_dt = datetime.fromisoformat(end_date) + timedelta(days=1)
         range_query["lt"] = end_dt.strftime("%Y-%m-%d")
     return [{"range": {"service_time": range_query}}]
@@ -99,11 +97,31 @@ def run_overall_aggregations(
             "source_file": _terms("source_file", 5),
             "refund": _terms("has_refund_demand", 5),
             "escalation": _terms("has_escalation", 5),
+            "province_tertiary": {
+                "terms": {"field": "province_name", "size": 10},
+                "aggs": {
+                    "top_tertiary": _terms("tertiary_labels", 5),
+                }
+            },
+            "province_refund": {
+                "terms": {"field": "province_name", "size": 10},
+                "aggs": {
+                    "refund_distribution": _terms("has_refund_demand", 3),
+                }
+            },
+            "refund_tertiary": {
+                "terms": {"field": "has_refund_demand", "size": 3},
+                "aggs": {
+                    "top_tertiary": _terms("tertiary_labels", 5),
+                }
+            },
             "label_group": _terms("label_group", 20),
             "insight_dimension": _terms("insight_dimension", 10),
             "customer_key_appeal": _terms("customer_key_appeal.keyword", 10),
             "cs_key_action": _text_terms("cs_key_action.keyword", 10),
             "operation_action": _terms("operation_action", 10),
+            "four_ops": _terms("four_operation", 10),
+            "four_product": _terms("four_product_level", 10),
             "biz_member_cluster": _terms("biz_member_cluster", 12),
             "marketing_activity_page": _terms("marketing_activity_page", 10, exclude=["无", "不适用", "{}", "[]", "未知"]),
             "marketing_activity_match_status": _terms("marketing_activity_match_status", 8, exclude=["无", "否", "不适用", "{}", "[]", "未知"]),
@@ -259,17 +277,14 @@ def run_overall_aggregations(
     }
     response = es.search(index=index_name, body=body)
     result = normalize_aggregations(response.body, start_date, end_date)
-    top_tertiary_evidence = build_tertiary_evidence_package(
-        es,
-        index_name,
-        query,
-        top_n=5,
-    )
-    result["top_tertiary_cause_evidence"] = top_tertiary_evidence
-    result["top_tertiary_examples"] = top_tertiary_evidence.get("items", [])
     result["total_with_unlabeled"] = total_with_unlabeled
     result["unlabeled_analysis"] = run_unlabeled_analysis(es, index_name, start_date, end_date)
     result["unlabeled_trend_analysis"] = run_unlabeled_trend_analysis(es, index_name, start_date, end_date)
+    # Include four operations / four product levels from mapping
+    four_ops, four_products, four_mapping_table = _compute_four_dimensions(result.get("tertiary", []))
+    result["four_ops_map"] = four_ops
+    result["four_products_map"] = four_products
+    result["four_mapping_table"] = four_mapping_table
     return result
 
 
@@ -461,6 +476,22 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
             }
         )
 
+    def _nested_bucket_list_with_tertiary(bucket: dict, child_key: str) -> list[dict]:
+        rows: list[dict] = []
+        for b in bucket.get("buckets", []):
+            item = {"key": b["key"], "count": b["doc_count"]}
+            item[child_key] = _bucket_list(b.get("top_tertiary", {}))
+            rows.append(item)
+        return rows
+
+    province_tertiary = _nested_bucket_list_with_tertiary(aggs["province_tertiary"], "top_tertiary")
+    province_refund = []
+    for bucket in aggs["province_refund"].get("buckets", []):
+        item = {"key": bucket["key"], "count": bucket["doc_count"]}
+        item["refund_distribution"] = _bucket_list(bucket.get("refund_distribution", {}))
+        province_refund.append(item)
+    refund_tertiary = _nested_bucket_list_with_tertiary(aggs["refund_tertiary"], "top_tertiary")
+
     result = {
         "filters": {"start_date": start_date, "end_date": end_date},
         "total": total,
@@ -478,6 +509,9 @@ def normalize_aggregations(response: dict, start_date: str | None, end_date: str
         "source_files": _bucket_list(aggs["source_file"]),
         "refund": _bucket_list(aggs["refund"]),
         "escalation": _bucket_list(aggs["escalation"]),
+        "province_tertiary": province_tertiary,
+        "province_refund": province_refund,
+        "refund_tertiary": refund_tertiary,
         "label_group": _bucket_list(aggs["label_group"]),
         "insight_dimension": _bucket_list(aggs["insight_dimension"]),
         "customer_key_appeal": _bucket_list(aggs["customer_key_appeal"]),
@@ -509,7 +543,7 @@ def build_insights(result: dict[str, Any]) -> list[str]:
     labeled_total = result["total"]
     total = result.get("total_with_unlabeled", labeled_total)
     if total == 0:
-        return ["当前筛选周期内未检索到可统计的工单数据。"]
+        return ["当前筛选周期内未检索到可统计的服务数据。"]
 
     insights = []
     top_primary = _top_bucket(result["primary"])
@@ -518,7 +552,7 @@ def build_insights(result: dict[str, Any]) -> list[str]:
     peak_day = max(result["daily"], key=lambda x: x["count"], default=None)
 
     if top_primary:
-        insights.append(f"本周期共纳入 {total} 条用户反馈/投诉工单，一级问题中「{top_primary['key']}」占比最高，提及 {top_primary['count']} 次。")
+        insights.append(f"本周期共纳入 {total} 条用户投诉数据，一级问题中「{top_primary['key']}」占比最高，提及 {top_primary['count']} 次。")
     if top_tertiary:
         insights.append(f"三级问题 TOP 项为「{top_tertiary['key']}」，提及 {top_tertiary['count']} 次，是整体情况中最需要优先定位原因的痛点。")
     if peak_day:
@@ -700,3 +734,146 @@ def normalize_unlabeled_trend_analysis(response: dict) -> dict[str, Any]:
         "peak_day": peak_day_data,
         "emotion_peak_day": emotion_peak_day_data,
     }
+
+
+# ── Four Operations / Four Product Level mapping ─────────────────────────
+
+# Static mapping from tertiary label -> (operation_dimension, product_level)
+# Loaded from the supplementary labels file at first use.
+_FOUR_DIM_CACHE: dict[str, tuple[str, str]] | None = None
+
+
+def _load_four_dim_mapping() -> dict[str, tuple[str, str]]:
+    """Load tertiary-label → (operation, product_level) from supplementary file."""
+    global _FOUR_DIM_CACHE
+    if _FOUR_DIM_CACHE is not None:
+        return _FOUR_DIM_CACHE
+
+    import pandas as pd
+    from pathlib import Path
+
+    mapping: dict[str, tuple[str, str]] = {}
+    candidate_paths = [
+        Path(r"C:\Users\86187\Desktop\营服工作记录2026\调研\标签\新数据20260508\咪咕视频三级问题标签-补充标记.xlsx"),
+        Path(r"/mnt/c/Users/86187/Desktop/营服工作记录2026/调研/标签/新数据20260508/咪咕视频三级问题标签-补充标记.xlsx"),
+    ]
+    label_file = None
+    for p in candidate_paths:
+        if p.exists():
+            label_file = p
+            break
+
+    if label_file is None:
+        _FOUR_DIM_CACHE = mapping
+        return mapping
+
+    try:
+        df = pd.read_excel(label_file, sheet_name="三级问题标签")
+        # The file structure: col 0 = 一级标签, col 1 = 二级标签, col 2 = 三级标签, col 4 = 四个层次/四个运营
+        for _, row in df.iterrows():
+            tertiary = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else ""
+            cat = str(row.iloc[4]).strip() if len(row) > 4 and pd.notna(row.iloc[4]) else ""
+            if not tertiary or not cat:
+                continue
+            # Determine if it's a product level or operation
+            if cat in {"平台产品", "内容产品", "功能产品", "工具产品"}:
+                # Also set default operation based on product level
+                prod_to_ops = {"平台产品": "商业运营", "内容产品": "内容运营", "功能产品": "平台运营", "工具产品": "用户运营"}
+                mapping[tertiary] = (prod_to_ops.get(cat, ""), cat)
+            elif cat in {"内容运营", "平台运营", "用户运营", "商业运营"}:
+                # Also set default product level based on operation
+                ops_to_prod = {"商业运营": "平台产品", "内容运营": "内容产品", "平台运营": "功能产品", "用户运营": "工具产品"}
+                mapping[tertiary] = (cat, ops_to_prod.get(cat, ""))
+            elif tertiary not in mapping:
+                mapping[tertiary] = ("", "")
+    except Exception:
+        pass
+
+    _FOUR_DIM_CACHE = mapping
+    return mapping
+
+
+def _compute_four_dimensions(tertiary_items: list[dict]) -> tuple[list, list, list]:
+    """Given tertiary aggregation buckets, compute rolled-up four-ops and
+    four-product counts using the supplementary label mapping.
+    Returns (ops_result, prod_result, mapping_table) where mapping_table
+    lists every tertiary label with its operation and product category."""
+    mapping = _load_four_dim_mapping()
+
+    # Hardcoded fallback for ES-style short labels
+    _FALLBACK_OPS = {
+        "退订困难/自动续费争议": "商业运营", "不知情订购": "商业运营",
+        "重复扣费/多扣费": "商业运营", "无法订购/扣费失败": "商业运营",
+        "订购入口难找": "商业运营",
+        "权益无法兑换/使用": "商业运营", "APP卡顿": "商业运营",
+        "APP闪退": "商业运营",
+        "奖励/优惠未到账": "用户运营", "快递单号查询": "用户运营",
+        "发放周期长": "用户运营", "无法查询中奖记录": "用户运营",
+        "活动规则不清晰/找不到": "用户运营", "活动规则不清晰": "用户运营",
+        "询问赛事门票发放时间": "用户运营",
+        "多端体验差异": "内容运营", "音画不同步": "内容运营",
+        "视频资讯资源不足": "内容运营", "赛事覆盖率低": "内容运营",
+        "画质效果差": "内容运营", "内容陈旧/更新慢": "内容运营",
+        "播放报错（黑屏/解码失败）": "内容运营", "权益价值感低": "内容运营",
+    }
+    _FALLBACK_PROD = {
+        "退订困难/自动续费争议": "平台产品", "不知情订购": "平台产品",
+        "重复扣费/多扣费": "平台产品", "无法订购/扣费失败": "平台产品",
+        "订购入口难找": "平台产品", "权益无法兑换/使用": "平台产品",
+        "APP卡顿": "平台产品", "APP闪退": "平台产品",
+        "直播无法回看": "功能产品", "进度拖拽失效": "功能产品",
+        "搜索结果不准确": "功能产品", "功能入口难找": "功能产品",
+        "播放卡顿（含缓冲慢）": "功能产品", "播放卡顿": "功能产品",
+        "权益查询不便": "功能产品", "发票开具困难": "功能产品",
+        "多端体验差异": "内容产品", "音画不同步": "内容产品",
+        "播放报错（黑屏/解码失败）": "内容产品", "视频资讯资源不足": "内容产品",
+        "赛事覆盖率低": "内容产品", "画质效果差": "内容产品",
+        "内容陈旧/更新慢": "内容产品", "权益价值感低": "内容产品",
+    }
+
+    def _fuzzy_match(label: str) -> tuple[str, str]:
+        """Match label via exact, contains, or fallback."""
+        if label in mapping:
+            return mapping[label]
+        # Try fuzzy: label in mapped or mapped in label
+        for mapped_label, val in mapping.items():
+            if label in mapped_label or mapped_label in label:
+                return val
+        # Hardcoded fallback
+        op = _FALLBACK_OPS.get(label, "")
+        prod = _FALLBACK_PROD.get(label, "")
+        return (op, prod)
+
+    ops_counts: dict[str, int] = {}
+    prod_counts: dict[str, int] = {}
+    ops_unmatched = 0
+    prod_unmatched = 0
+    mapping_table: list[dict] = []
+
+    for item in tertiary_items:
+        label = item.get("key", "")
+        count = item.get("count", 0)
+        op, prod = _fuzzy_match(label)
+        if op:
+            ops_counts[op] = ops_counts.get(op, 0) + count
+        else:
+            ops_unmatched += count
+        if prod:
+            prod_counts[prod] = prod_counts.get(prod, 0) + count
+        else:
+            prod_unmatched += count
+        mapping_table.append({
+            "tertiary_label": label,
+            "count": count,
+            "operation": op or "未归类",
+            "product_level": prod or "未归类",
+        })
+
+    ops_result = [{"key": k, "count": v} for k, v in sorted(ops_counts.items(), key=lambda x: -x[1])]
+    prod_result = [{"key": k, "count": v} for k, v in sorted(prod_counts.items(), key=lambda x: -x[1])]
+    if ops_unmatched > 0:
+        ops_result.append({"key": "未归类", "count": ops_unmatched})
+    if prod_unmatched > 0:
+        prod_result.append({"key": "未归类", "count": prod_unmatched})
+
+    return ops_result, prod_result, mapping_table

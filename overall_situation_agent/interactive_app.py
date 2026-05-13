@@ -228,7 +228,26 @@ class InteractiveOverallSituationApp:
             if self._handle_command(question):
                 continue
 
-            self._handle_question(question)
+            self._handle_question(question, echo=True)
+
+    def handle_message(self, input_text: str) -> str:
+        stripped = _normalize_input_text(input_text).strip()
+        if not stripped:
+            return "问题不能为空。"
+        command = stripped.lower()
+        if command in {"/exit", "/quit", "/q", "exit", "quit", "q", "退出"}:
+            return "已退出。"
+        if command in {"/help", "help", "帮助"}:
+            return HELP_TEXT
+        if command in {"/context", "context", "上下文"}:
+            return self._context_text()
+        if command == "/report" or command.startswith("/report "):
+            return self._handle_report_command(stripped, echo=False)
+        if stripped.startswith("/生成报告"):
+            return "生成文档请使用 /report。普通输入不会生成文档。"
+        if stripped.startswith("/"):
+            return "未知命令。输入 /help 查看可用命令。"
+        return self._handle_question(stripped, echo=False)
 
     def _handle_command(self, input_text: str) -> bool:
         stripped = _normalize_input_text(input_text).strip()
@@ -253,11 +272,13 @@ class InteractiveOverallSituationApp:
             return True
         return False
 
-    def _handle_question(self, question: str) -> None:
+    def _handle_question(self, question: str, *, echo: bool = True) -> str:
         errors = _validate_chat_question(question)
         if errors:
-            print("输入校验未通过：" + "；".join(errors))
-            return
+            message = "输入校验未通过：" + "；".join(errors)
+            if echo:
+                print(message)
+            return message
 
         self.state.add_user(question)
         logger.info("User query: %s", question)
@@ -273,25 +294,33 @@ class InteractiveOverallSituationApp:
             answer = _sanitize_console_text(answer)
             self.state.add_assistant(answer)
             self._maybe_compact_history()
-            print(answer)
+            if echo:
+                print(answer)
+            return answer
         except LLMUnavailableError as exc:
             message = _sanitize_console_text(f"{exc} 如需生成报告，请使用 /report。")
             self.state.add_assistant(message)
             self._maybe_compact_history()
-            print(message)
+            if echo:
+                print(message)
+            return message
         except ESQueryError as exc:
             message = _sanitize_console_text(f"数据查询失败：{exc}")
             self.state.add_assistant(message)
             self._maybe_compact_history()
-            print(message)
+            if echo:
+                print(message)
+            return message
         except Exception as exc:
             logger.exception("Failed to handle user question")
             message = _sanitize_console_text(f"处理失败：{exc}")
             self.state.add_assistant(message)
             self._maybe_compact_history()
-            print(message)
+            if echo:
+                print(message)
+            return message
 
-    def _handle_report_command(self, input_text: str) -> None:
+    def _handle_report_command(self, input_text: str, *, echo: bool = True) -> str:
         dates = self._extract_dates(input_text)
         start_date = dates[0] if dates else self.state.last_start_date
         end_date = dates[1] if len(dates) > 1 else (dates[0] if dates else self.state.last_end_date)
@@ -313,12 +342,16 @@ class InteractiveOverallSituationApp:
             markdown_path = report_path.with_suffix(".md")
             answer = f"报告已生成：\nHTML：{report_path.resolve()}\nMarkdown：{markdown_path.resolve()}"
             self.state.add_assistant(answer)
-            print(answer)
+            if echo:
+                print(answer)
+            return answer
         except Exception as exc:
             logger.exception("Failed to generate report")
             message = f"生成失败：{exc}"
             self.state.add_assistant(message)
-            print(message)
+            if echo:
+                print(message)
+            return message
 
     def _extract_dates(self, input_text: str) -> list[str]:
         dates = []
@@ -567,18 +600,28 @@ class InteractiveOverallSituationApp:
         raise RuntimeError(f"重试后仍无法生成报告：{last_error}")
 
     def _print_context(self) -> None:
-        print("=== 会话状态 ===")
-        print(f"最近报告：{self.state.last_report_path.resolve() if self.state.last_report_path else '暂无'}")
-        print(f"最近日期范围：{self.state.last_start_date or '未限定'} 至 {self.state.last_end_date or '未限定'}")
-        print(f"累计生成报告数：{len(self.state.generated_reports)}")
-        print()
-        print("=== 对话历史 ===")
+        print(self._context_text())
+
+    def _context_text(self) -> str:
+        lines = [
+            "=== 会话状态 ===",
+            f"最近报告：{self.state.last_report_path.resolve() if self.state.last_report_path else '暂无'}",
+            f"最近日期范围：{self.state.last_start_date or '未限定'} 至 {self.state.last_end_date or '未限定'}",
+            f"累计生成报告数：{len(self.state.generated_reports)}",
+            "",
+            "=== 对话历史 ===",
+        ]
         questions = self.state.get_user_questions()
-        print(f"当前共 {len(questions)} 个用户问题")
+        lines.append(f"当前共 {len(questions)} 个用户问题")
         if questions:
-            print("用户问题列表：")
+            lines.append("用户问题列表：")
             for i, q in enumerate(questions, 1):
-                print(f"  {i}. {q[:80]}{'...' if len(q) > 80 else ''}")
-        print()
-        print(f"会话摘要：{self.state.summary or '暂无'}")
-        print(f"最近数据查询：{self.state.last_query_question or '暂无'}")
+                lines.append(f"  {i}. {q[:80]}{'...' if len(q) > 80 else ''}")
+        lines.extend(
+            [
+                "",
+                f"会话摘要：{self.state.summary or '暂无'}",
+                f"最近数据查询：{self.state.last_query_question or '暂无'}",
+            ]
+        )
+        return "\n".join(lines)

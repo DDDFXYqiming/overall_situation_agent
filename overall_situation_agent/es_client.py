@@ -48,7 +48,6 @@ class SimpleIndicesClient:
             "DELETE",
             f"/{index}",
             params={"timeout": "180s", "master_timeout": "180s", "ignore_unavailable": "true"},
-            timeout_seconds=300,
         )
         return SimpleResponse(payload)
 
@@ -133,6 +132,31 @@ class SimpleElasticsearch:
         _, payload = self.request("POST", f"/{index}/_search", body=body)
         return SimpleResponse(payload)
 
+    def msearch(self, index: str, bodies: list[dict[str, Any]]) -> list[SimpleResponse]:
+        if not bodies:
+            return []
+        lines: list[str] = []
+        for body in bodies:
+            lines.append(json.dumps({"index": index}, ensure_ascii=False))
+            lines.append(json.dumps(body, ensure_ascii=False))
+        payload = "\n".join(lines) + "\n"
+        _, response = self.request(
+            "POST",
+            "/_msearch",
+            body=payload,
+            content_type="application/x-ndjson",
+            timeout_seconds=300,
+        )
+        responses = response.get("responses", [])
+        if len(responses) != len(bodies):
+            raise ElasticsearchError(f"_msearch returned {len(responses)} responses for {len(bodies)} requests")
+        wrapped: list[SimpleResponse] = []
+        for item in responses:
+            if item.get("error"):
+                raise ElasticsearchError(f"_msearch item failed: {json.dumps(item['error'], ensure_ascii=False)}")
+            wrapped.append(SimpleResponse(item))
+        return wrapped
+
     def bulk(self, operations: list[dict[str, Any]]) -> SimpleResponse:
         lines = [json.dumps(operation, ensure_ascii=False) for operation in operations]
         payload = "\n".join(lines) + "\n"
@@ -144,7 +168,18 @@ class SimpleElasticsearch:
             timeout_seconds=300,
         )
         if response.get("errors"):
-            raise ElasticsearchError("Bulk import completed with item errors.")
+            error_items = response.get("items", [])
+            first_error = None
+            for item in error_items:
+                for action in ("index", "create", "update"):
+                    op = item.get(action)
+                    if op and op.get("error"):
+                        first_error = op["error"]
+                        break
+                if first_error:
+                    break
+            detail = f"first_error={json.dumps(first_error, ensure_ascii=False)}" if first_error else "unknown"
+            raise ElasticsearchError(f"Bulk import completed with item errors. {detail}")
         return SimpleResponse(response)
 
     def cluster_health(self, wait_for_status: str | None = None, timeout: str = "120s") -> SimpleResponse:

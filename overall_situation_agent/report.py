@@ -8,9 +8,144 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from .report_context import build_report_context
 from .style_guard import enforce_style_contract
+from .taxonomy import CANONICAL_PRIMARY_TERTIARY, canonical_tertiary_label, primary_top_tertiary_items
 
 CHART_COLORS = ["#0052FF", "#4D7CFF", "#38BDF8", "#22C55E", "#F97316", "#A855F7", "#64748B", "#0F172A"]
+
+
+# ── 四个运营维度 & 四个产品层次映射 ──────────────────────────────────
+# Based on: 咪咕视频三级问题标签-补充标记.xlsx
+FOUR_OPS_MAP = {
+    # 商业运营
+    "无法订购/扣费失败": "商业运营",
+    "订购入口难找": "商业运营",
+    "不知情订购": "商业运营",
+    "重复扣费/多扣费": "商业运营",
+    "退订困难/自动续费争议": "商业运营",
+    "发票开具困难": "商业运营",
+    "APP卡顿": "商业运营",
+    "APP卡顿、打开速度慢": "商业运营",
+    "APP闪退": "商业运营",
+    "APP闪退（特定版本/机型崩溃）": "商业运营",
+    "权益无法兑换/使用": "商业运营",
+    "权益无法兑换/使用（如不知如何兑换、兑换失败）": "商业运营",
+    # 用户运营
+    "活动规则不清晰/找不到": "用户运营",
+    "活动规则不清晰，找不到": "用户运营",
+    "活动规则不清晰": "用户运营",
+    "询问赛事门票发放时间": "用户运营",
+    "奖励/优惠未到账": "用户运营",
+    "奖励/优惠未到账，包括省侧流量、省侧话费、电影券未到账": "用户运营",
+    "快递单号查询": "用户运营",
+    "咨询快递单号，中奖奖品快递单号无法在活动页面查看": "用户运营",
+    "发放周期长": "用户运营",
+    "活动奖品发放周期过长，咨询实物奖品发放情况": "用户运营",
+    "无法查询中奖记录": "用户运营",
+    "活动中奖后无法查询中奖记录": "用户运营",
+    # 内容运营
+    "视频资讯资源不足": "内容运营",
+    "视频、资讯资源不足": "内容运营",
+    "赛事覆盖率低": "内容运营",
+    "画质效果差": "内容运营",
+    "内容陈旧/更新慢": "内容运营",
+    "音画不同步": "内容运营",
+    "多端体验差异": "内容运营",
+    "多端体验有差异": "内容运营",
+    "多端体验有差异（操作一致性）": "内容运营",
+    "播放报错（黑屏/解码失败）": "内容运营",
+    "播放报错": "内容运营",
+    "权益价值感低": "内容运营",
+    "权益价值感低（如VIP权益可看内容少）": "内容运营",
+    # 平台运营
+    "直播无法回看": "平台运营",
+    "进度拖拽失效": "平台运营",
+    "搜索结果不准确": "平台运营",
+    "搜索结果不准确（无法精准搜索、搜不到内容）": "平台运营",
+    "功能入口难找": "平台运营",
+    "功能、活动等入口难找": "平台运营",
+    "播放卡顿（含缓冲慢）": "平台运营",
+    "播放卡顿": "平台运营",
+    "权益查询不便": "平台运营",
+    "权益查询不便（如VIP权益入口）": "平台运营",
+    "发票开具困难（开发票慢、流程复杂等）": "平台运营",
+}
+
+FOUR_PRODUCTS_MAP = {
+    # 平台产品
+    "APP卡顿": "平台产品",
+    "APP卡顿、打开速度慢": "平台产品",
+    "APP闪退": "平台产品",
+    "APP闪退（特定版本/机型崩溃）": "平台产品",
+    "权益无法兑换/使用": "平台产品",
+    "权益无法兑换/使用（如不知如何兑换、兑换失败）": "平台产品",
+    "无法订购/扣费失败": "平台产品",
+    "订购入口难找": "平台产品",
+    "不知情订购": "平台产品",
+    "重复扣费/多扣费": "平台产品",
+    "退订困难/自动续费争议": "平台产品",
+    # 内容产品
+    "音画不同步": "内容产品",
+    "多端体验差异": "内容产品",
+    "多端体验有差异": "内容产品",
+    "多端体验有差异（操作一致性）": "内容产品",
+    "播放报错（黑屏/解码失败）": "内容产品",
+    "播放报错": "内容产品",
+    "视频资讯资源不足": "内容产品",
+    "视频、资讯资源不足": "内容产品",
+    "赛事覆盖率低": "内容产品",
+    "画质效果差": "内容产品",
+    "内容陈旧/更新慢": "内容产品",
+    "权益价值感低": "内容产品",
+    "权益价值感低（如VIP权益可看内容少）": "内容产品",
+    # 功能产品
+    "直播无法回看": "功能产品",
+    "进度拖拽失效": "功能产品",
+    "搜索结果不准确": "功能产品",
+    "搜索结果不准确（无法精准搜索、搜不到内容）": "功能产品",
+    "功能入口难找": "功能产品",
+    "功能、活动等入口难找": "功能产品",
+    "播放卡顿（含缓冲慢）": "功能产品",
+    "播放卡顿": "功能产品",
+    "权益查询不便": "功能产品",
+    "权益查询不便（如VIP权益入口）": "功能产品",
+    "发票开具困难": "功能产品",
+    "发票开具困难（开发票慢、流程复杂等）": "功能产品",
+    # 工具产品
+    "活动规则不清晰/找不到": "工具产品",
+    "活动规则不清晰，找不到": "工具产品",
+    "活动规则不清晰": "工具产品",
+    "询问赛事门票发放时间": "工具产品",
+    "奖励/优惠未到账": "工具产品",
+    "奖励/优惠未到账，包括省侧流量、省侧话费、电影券未到账": "工具产品",
+    "快递单号查询": "工具产品",
+    "咨询快递单号，中奖奖品快递单号无法在活动页面查看": "工具产品",
+    "发放周期长": "工具产品",
+    "活动奖品发放周期过长，咨询实物奖品发放情况": "工具产品",
+    "无法查询中奖记录": "工具产品",
+    "活动中奖后无法查询中奖记录": "工具产品",
+}
+
+def _map_tertiary_to_ops(label: str) -> str:
+    """Map a tertiary label to its four-ops dimension."""
+    if label in FOUR_OPS_MAP:
+        return FOUR_OPS_MAP[label]
+    # Fuzzy match: try partial match
+    for key, val in FOUR_OPS_MAP.items():
+        if key in label or label in key:
+            return val
+    return "平台运营"
+
+def _map_tertiary_to_product(label: str) -> str:
+    """Map a tertiary label to its four-products level."""
+    if label in FOUR_PRODUCTS_MAP:
+        return FOUR_PRODUCTS_MAP[label]
+    for key, val in FOUR_PRODUCTS_MAP.items():
+        if key in label or label in key:
+            return val
+    return "工具产品"
+
 
 
 def _e(value: Any) -> str:
@@ -22,6 +157,28 @@ def _n(value: Any) -> str:
         return f"{int(value):,}"
     except (TypeError, ValueError):
         return _e(value)
+
+
+def _strip_emoji(text: str) -> str:
+    try:
+        import re
+        emoji_pattern = re.compile(
+            "[\U0001F600-\U0001F64F"       # Emoticons
+            "\U0001F300-\U0001F5FF"        # Misc Symbols and Pictographs
+            "\U0001F680-\U0001F6FF"        # Transport and Map
+            "\U0001F1E0-\U0001F1FF"        # Flags (Regional Indicators)
+            "\U00002702-\U000027B0"        # Dingbats
+            "\U0001F900-\U0001F9FF"        # Supplemental Symbols
+            "\U00002300-\U000023FF"        # Miscellaneous Technical
+            "\U00002B50\U00002B55"         # Star, Heavy Circle
+            "\U0000FE00-\U0000FE0F"        # Variation Selectors
+            "\U0000200D"                   # Zero Width Joiner
+            "\U000020E3"                   # Combining Enclosing Keycap
+            "]",
+            flags=re.UNICODE)
+        return emoji_pattern.sub("", text).strip()
+    except Exception:
+        return text.strip()
 
 
 def _pct(value: float) -> str:
@@ -36,12 +193,12 @@ def _safe_ratio(part: float, whole: float) -> float:
     return part / whole if whole else 0
 
 
-def _tags(items: list[dict]) -> str:
-    total = sum(item.get("count", 0) for item in items)
+def _tags(items: list[dict], total: int | None = None) -> str:
+    denom = total if total is not None else sum(item.get("count", 0) for item in items)
     tags = []
     for item in items:
         count = item.get("count", 0)
-        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
+        pct = f"{count / denom * 100:.1f}%" if denom > 0 else "0.0%"
         tags.append(
             f'<span class="tag"><span class="tag-text">{_e(item["key"])}</span><strong>共{_n(count)}条，占比{pct}</strong></span>'
         )
@@ -162,7 +319,7 @@ def _natural_sample_summary(value: Any, issue: str = "") -> str:
         points.append("相关业务办理或观看过程存在体验阻断")
     joined = "，并且".join(dict.fromkeys(points[:3]))
     topic = f"「{issue}」" if issue else "该问题"
-    return f"样例中，用户围绕{topic}主要反馈{joined}。"
+    return f"样例中，用户围绕{topic}主要投诉{joined}。"
 
 
 def _narrative_line_at(lines: list[str] | None, index: int) -> str:
@@ -172,18 +329,18 @@ def _narrative_line_at(lines: list[str] | None, index: int) -> str:
     return "" if _looks_like_raw_dialog(line) else line
 
 
-def _bar_rows(items: list[dict], alt: bool = False) -> str:
+def _bar_rows(items: list[dict], alt: bool = False, total: int | None = None) -> str:
     visible = [item for item in items if item.get("count", 0) > 0]
     if not visible:
         return '<p class="subtle">暂无可展示数据。</p>'
     max_value = max(item["count"] for item in visible) or 1
-    total = sum(item["count"] for item in visible)
+    denom = total if total is not None else sum(item["count"] for item in visible)
     cls = "bar-fill alt" if alt else "bar-fill"
     rows = []
     for item in visible:
         count = item["count"]
         width = round(count / max_value * 100, 1) if max_value else 0
-        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
+        pct = f"{count / denom * 100:.1f}%" if denom > 0 else "0.0%"
         rows.append(
             f"""
             <div class="bar-row">
@@ -622,7 +779,7 @@ def _build_trend_view(daily: list[dict], filters: dict | None = None, anomalies:
 
 def _source_files_text(items: list[dict]) -> str:
     names = [str(item.get("key", "")).strip() for item in items if str(item.get("key", "")).strip()]
-    return "、".join(names) if names else "当前导入的已打标工单数据"
+    return "、".join(names) if names else "当前导入的已打标服务数据"
 
 
 def _trend_svg(daily: list[dict], focus_note: str | None = None) -> str:
@@ -878,86 +1035,261 @@ def _voice_cards(items: list[dict]) -> str:
     return "".join(cards)
 
 
+def _render_executive_summary_html(exec_text: str) -> str:
+    """Render the executive summary block in HTML."""
+    if not exec_text or not exec_text.strip():
+        return ""
+    return f'''      <div id="executive-summary" class="section-heading" style="margin-top:20px">
+        <div>
+          <span class="chart-kicker">核心摘要与发现</span>
+          <h2>核心摘要与发现</h2>
+          <div class="insight-block" style="background:var(--panel-bg,#f8f9fb);border-radius:12px;padding:24px;margin-top:12px">
+            <p style="font-size:15px;line-height:1.9;color:var(--text,#2d2d2d)">{_e(exec_text)}</p>
+          </div>
+        </div>
+      </div>'''
+
+
+def _render_four_ops_html(four_ops: list, four_products: list, mapping_table: list) -> str:
+    """Render four operations / four product levels analysis in HTML."""
+    if not four_ops and not four_products:
+        return ""
+    parts = ['''      <div id="four-ops" class="section-heading" style="margin-top:20px">
+        <div>
+          <span class="chart-kicker">STRATEGIC DIMENSION</span>
+          <h2>四个运营维度分析</h2>''']
+    if four_ops:
+        parts.append('''          <h3 style="margin-top:16px">四个运营维度分布</h3>
+          <div class="table-scroll"><table class="data-table"><thead><tr><th>运营维度</th><th>问题量</th></tr></thead><tbody>''')
+        for item in four_ops[:5]:
+            parts.append(f'<tr><td>{_e(item.get("key",""))}</td><td>{_n(item.get("count",0))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    if four_products:
+        parts.append('''          <h3 style="margin-top:16px">四个产品层次分布</h3>
+          <div class="table-scroll"><table class="data-table"><thead><tr><th>产品层次</th><th>问题量</th></tr></thead><tbody>''')
+        for item in four_products[:5]:
+            parts.append(f'<tr><td>{_e(item.get("key",""))}</td><td>{_n(item.get("count",0))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    if mapping_table:
+        parts.append('''          <h3 style="margin-top:16px">三级问题标签到四个层次/四个运营映射表</h3>
+          <div class="table-scroll"><table class="data-table"><thead><tr><th>三级标签</th><th>问题量</th><th>归属运营维度</th><th>归属产品层次</th></tr></thead><tbody>''')
+        for m in mapping_table:
+            parts.append(f'<tr><td>{_e(m.get("tertiary_label",""))}</td><td>{_n(m.get("count",0))}</td><td>{_e(m.get("operation",""))}</td><td>{_e(m.get("product_level",""))}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append('''        </div></div>''')
+    return "\n".join(parts)
+
+
+def _render_typical_case_deep_dive_html(deep_data: list[dict]) -> str:
+    """Render typical case deep dives in HTML."""
+    if not deep_data:
+        return ""
+    parts = ['''      <div id="typical-case" class="section-heading" style="margin-top:20px">
+        <div>
+          <span class="chart-kicker">TYPICAL CASE</span>
+          <h2>典型问题深度分析</h2>''']
+    for item in deep_data[:3]:
+        label = _e(item.get("label", ""))
+        count = _n(item.get("count", 0))
+        analysis = _e(item.get("analysis", ""))
+        if analysis:
+            parts.append(f'''          <div class="insight-block" style="background:var(--panel-bg,#f8f9fb);border-radius:12px;padding:20px;margin-top:16px">
+            <h4>「{label}」（共{count}件）</h4>
+            <p style="font-size:14px;line-height:1.8">{analysis}</p>
+          </div>''')
+    parts.append('''        </div></div>''')
+    return "\n".join(parts)
+
+
+def _render_tertiary_cause_detail_section(details) -> str:
+    if not details:
+        return ""
+    headers = ["\u6392\u540d", "\u4e09\u7ea7\u95ee\u9898", "\u63d0\u53ca\u91cf/\u5360\u6bd4",
+               "\u5de5\u5355\u5185\u5bb9\u603b\u7ed3", "\u5ba2\u670d\u56de\u590d\u603b\u7ed3",
+               "\u5ba2\u6237\u5173\u952e\u8bc9\u6c42", "\u8bc9\u6c42\u5173\u952e\u8bcd",
+               "\u5ba2\u670d\u5904\u7406\u52a8\u4f5c", "\u5ba2\u670d\u5173\u952e\u8bcd", "\u6839\u56e0\u5224\u65ad"]
+    thead = "".join(f'<th>{h}</th>' for h in headers)
+    trows = []
+    for idx, item in enumerate(details):
+        label = _e(str(item.get("label", "")))
+        count = _n(item.get("count", 0))
+        share = _e(str(item.get("share", "")))
+        dims = [
+            _e(item.get("content_summary", "")),
+            _e(item.get("cs_reply_summary", "")),
+            _e(item.get("customer_appeal_summary", "")),
+            _e(item.get("customer_keywords_summary", "")),
+            _e(item.get("cs_action_summary", "")),
+            _e(item.get("cs_keywords_summary", "")),
+            _e(item.get("root_cause", "")),
+        ]
+        trows.append(
+            "<tr>"
+            f'<td><strong>TOP{idx+1}</strong></td>'
+            f'<td>{label}</td>'
+            f'<td>{count} / {share}</td>'
+            + "".join(f'<td style="word-break:break-word;max-width:280px">{d}</td>' for d in dims)
+            + "</tr>"
+        )
+    table = (
+        f'<section class="chart-card chart-grid-wide" data-reveal="card">'
+        f'<div class="chart-header"><div><span class="chart-kicker">CAUSE DETAIL</span>'
+        f'<h3>\u5404\u4e09\u7ea7\u95ee\u9898\u539f\u56e0\u5206\u6790\u8be6\u60c5</h3></div></div>'
+        f'<div class="table-scroll"><table class="data-table"><thead><tr>{thead}</tr></thead>'
+        f'<tbody>{"".join(trows)}</tbody></table></div></section>'
+    )
+    return table
+
+
+
+def _province_analysis_section(province_data: list, refund_data: list, narratives: dict) -> str:
+    if not province_data:
+        return ""
+
+    # Province distribution bar chart (TOP10)
+    all_province_total = sum(item.get("count", 0) for item in province_data)
+    bar_rows_html = _bar_rows(province_data[:10], total=all_province_total)
+
+    # LLM narrative
+    narrative_html = _narrative_stack(narratives.get("province_analysis") or [])
+
+    return f"""
+    <section class="chart-card chart-grid-wide" data-reveal="card">
+      <div class="chart-header">
+        <div>
+          <span class="chart-kicker">PROVINCE ANALYSIS</span>
+          <h3>省份投诉分布与区域特征</h3>
+        </div>
+      </div>
+      {narrative_html}
+      <div class="bar-chart-area">{bar_rows_html}</div>
+    </section>
+    """
+
+
+def _refund_analysis_section(refund_data: list, refund_tertiary_data: list, escalation_data: list, narratives: dict) -> str:
+    if not refund_data:
+        return ""
+
+    # Refund distribution table
+    refund_total = _sum_counts(refund_data)
+    refund_rows = []
+    for idx, item in enumerate([r for r in refund_data if r.get("count", 0) > 0][:5], start=1):
+        count = int(item.get("count", 0))
+        refund_rows.append(
+            f"<tr><td>{idx:02d}</td><td>{_e(item['key'])}</td><td>{_n(count)}</td>"
+            f"<td>{_pct(_safe_ratio(count, refund_total))}</td></tr>"
+        )
+
+    refund_table = ""
+    if refund_rows:
+        refund_table = f"""
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>排名</th><th>退费诉求</th><th>提及量</th><th>占比</th></tr></thead>
+            <tbody>{''.join(refund_rows)}</tbody>
+          </table>
+        </div>
+        """
+
+    # Refund-tertiary association table
+    tertiary_rows = []
+    for rt in refund_tertiary_data[:3]:
+        rt_key = _e(rt.get("key", "未标注"))
+        rt_count = int(rt.get("count", 0))
+        tert_items = [t for t in rt.get("top_tertiary", []) if t.get("count", 0) > 0]
+        if not tert_items:
+            tertiary_rows.append(
+                f"<tr><td>{rt_key}</td><td>{_n(rt_count)}</td><td>无</td><td>0</td><td>0.0%</td></tr>"
+            )
+            continue
+        for tert in tert_items[:3]:
+            tert_count = int(tert.get("count", 0))
+            tertiary_rows.append(
+                f"<tr><td>{rt_key}</td><td>{_n(rt_count)}</td>"
+                f"<td>{_e(tert['key'])}</td><td>{_n(tert_count)}</td>"
+                f"<td>{_pct(_safe_ratio(tert_count, rt_count))}</td></tr>"
+            )
+
+    tertiary_table = ""
+    if tertiary_rows:
+        tertiary_table = f"""
+        <div class="table-scroll" style="margin-top:16px">
+          <table class="data-table">
+            <thead><tr><th>退费诉求</th><th>服务数据量</th><th>关联三级问题</th><th>提及量</th><th>退费组内占比</th></tr></thead>
+            <tbody>{''.join(tertiary_rows)}</tbody>
+          </table>
+        </div>
+        """
+
+    # Escalation risk
+    escalation_html = ""
+    if escalation_data:
+        esc_total = _sum_counts(escalation_data)
+        esc_tags = _tags(escalation_data[:3], total=esc_total)
+        escalation_html = f"""
+        <div style="margin-top:16px">
+          <h4 style="margin:0 0 8px">升级投诉风险分布</h4>
+          <div class="chip-cloud">{esc_tags}</div>
+        </div>
+        """
+
+    # LLM narrative
+    narrative_html = _narrative_stack(narratives.get("refund_analysis") or [])
+
+    return f"""
+    <section class="chart-card chart-grid-wide" data-reveal="card">
+      <div class="chart-header">
+        <div>
+          <span class="chart-kicker">REFUND ANALYSIS</span>
+          <h3>退费诉求专题分析</h3>
+        </div>
+      </div>
+      {narrative_html}
+      {refund_table}
+      {tertiary_table}
+      {escalation_html}
+    </section>
+    """
+
+
 def _merged_cause_voice_table(result: dict, narratives: dict[str, list[str]] | None = None) -> str:
     examples = result.get("top_tertiary_examples", [])
     if not examples:
         return ""
     narratives = narratives or {}
+    summary_lines = narratives.get("cause_voice_sample_summaries") or []
     rows = []
     for idx, item in enumerate(examples):
         count = int(item.get("count", 0))
-        field_summary = _cause_field_summary_at(narratives, item, idx)
+        appeal_text = _key_text(item.get("top_appeals", []), 3)
+        sample = item.get("samples", [{}])[0] if item.get("samples") else {}
+        summary_text = _narrative_line_at(summary_lines, idx) or _natural_sample_summary(
+            sample.get("content_excerpt", ""),
+            str(item.get("key") or ""),
+        )
         rows.append(f"""
         <tr>
           <td>{_e(item.get("key", "未标注"))}</td>
           <td>{_n(count)}条</td>
-          <td>{_e(field_summary.get("content_reply_summary", ""))}</td>
-          <td>{_e(field_summary.get("appeal_keyword_summary", ""))}</td>
-          <td>{_e(field_summary.get("cs_action_keyword_summary", ""))}</td>
+          <td>{_e(appeal_text)}</td>
+          <td>{_e(summary_text)}</td>
         </tr>
         """)
     table = f"""
-    <div class="table-scroll table-scroll-wide">
-    <table class="data-table cause-voice-table">
-      <colgroup>
-        <col class="cause-col-issue">
-        <col class="cause-col-count">
-        <col class="cause-col-summary">
-        <col class="cause-col-summary">
-        <col class="cause-col-summary">
-      </colgroup>
+    <table class="data-table">
       <thead>
         <tr>
           <th>三级问题</th>
           <th>提及量</th>
-          <th>工单内容与客服回复总结</th>
-          <th>客户诉求与关键词总结</th>
-          <th>客服处理动作与关键词总结</th>
+          <th>高频诉求</th>
+          <th>样例摘要</th>
         </tr>
       </thead>
       <tbody>{"".join(rows)}</tbody>
     </table>
-    </div>
     """
     return table
-
-
-def _cause_field_summary_at(narratives: dict, item: dict, idx: int) -> dict[str, str]:
-    field_items = narratives.get("cause_field_summaries") or []
-    fallback = _cause_field_summary_fallback(item)
-    candidate = field_items[idx] if idx < len(field_items) else {}
-    if not isinstance(candidate, dict):
-        return fallback
-    return {
-        "content_reply_summary": str(candidate.get("content_reply_summary") or fallback["content_reply_summary"]).strip(),
-        "appeal_keyword_summary": str(candidate.get("appeal_keyword_summary") or fallback["appeal_keyword_summary"]).strip(),
-        "cs_action_keyword_summary": str(candidate.get("cs_action_keyword_summary") or fallback["cs_action_keyword_summary"]).strip(),
-    }
-
-
-def _cause_field_summary_fallback(item: dict) -> dict[str, str]:
-    issue = str(item.get("key") or "该三级问题").strip()
-    samples = item.get("samples") or []
-    sample_text = "；".join(
-        str(sample.get("content") or sample.get("content_excerpt") or "").strip()
-        for sample in samples[:3]
-        if str(sample.get("content") or sample.get("content_excerpt") or "").strip()
-    )
-    reply_seen = any(str(sample.get("cs_reply") or sample.get("cs_reply_excerpt") or "").strip() for sample in samples[:3])
-    content_summary = _natural_sample_summary(sample_text, issue) if sample_text else f"样例中，用户围绕「{issue}」主要反馈业务办理或观看过程中的体验阻断。"
-    if reply_seen:
-        content_summary += "客服回复侧多以规则解释、问题核查、投诉记录或退费处理衔接，处理结果需要进一步闭环。"
-    else:
-        content_summary += "客服回复信息在样本中不够充分，容易让用户继续追问处理进度和责任归属。"
-    appeals = _key_text(item.get("top_customer_appeals") or item.get("top_appeals") or [], 4)
-    customer_keywords = _key_text(item.get("top_customer_keywords", []), 5)
-    cs_actions = _key_text(item.get("top_cs_actions", []), 4)
-    cs_keywords = _key_text(item.get("top_cs_keywords", []), 5)
-    return {
-        "content_reply_summary": f"工单内容与客服回复：{content_summary}",
-        "appeal_keyword_summary": f"客户诉求与关键词：客户关键诉求集中在{appeals}，诉求关键词集中在{customer_keywords}；用户关注点主要落在退费、取消、核实办理来源或恢复权益这些直接结果。",
-        "cs_action_keyword_summary": f"客服处理动作与关键词：客服关键处理动作集中在{cs_actions}，处理关键词集中在{cs_keywords}；整体更偏向解释规则、提交核查和记录投诉，前端即时解决能力仍偏弱。",
-    }
 
 
 def _overview_table(title: str, kicker: str, items: list[dict], total: int, summary: str | list[str]) -> str:
@@ -977,6 +1309,144 @@ def _overview_table(title: str, kicker: str, items: list[dict], total: int, summ
       </div>
       {summary_html}
       <div class="metric-pill-row">{highlights or '<span class="subtle">暂无可展示数据。</span>'}</div>
+    </section>
+    """
+
+
+def _primary_detail_breakdown_html(result: dict, narratives: dict[str, Any], total: int) -> str:
+    primary_labels = [
+        item for item in (result.get("primary", []) or [])
+        if str(item.get("key", "")).strip() in CANONICAL_PRIMARY_TERTIARY and item.get("count", 0) > 0
+    ][:6]
+    if not primary_labels:
+        return ""
+
+    cause_by_label = {
+        canonical_tertiary_label(item.get("label", "")): item
+        for item in (narratives.get("tertiary_cause_detail") or [])
+        if item.get("label")
+    }
+    summary_by_label = {
+        str(item.get("label", "")).strip(): item
+        for item in (narratives.get("primary_summaries") or [])
+        if item.get("label")
+    }
+    cn_numbers = ["一", "二", "三", "四", "五", "六"]
+    cards: list[str] = []
+
+    for idx, primary_item in enumerate(primary_labels):
+        pkey = str(primary_item.get("key", "")).strip()
+        pcount = int(primary_item.get("count", 0) or 0)
+        pshare = _pct(_safe_ratio(pcount, total))
+        llm_summary = str(summary_by_label.get(pkey, {}).get("summary", "")).strip()
+        if not llm_summary:
+            raise RuntimeError(f"一级标签小结缺失：{pkey}")
+
+        primary_tertiary = primary_top_tertiary_items(result, pkey, pcount, limit=5)
+        if not primary_tertiary:
+            raise RuntimeError(f"一级标签无法按权威 taxonomy 找到三级分布：{pkey}")
+
+        dist_rows: list[list[Any]] = []
+        for tertiary_item in primary_tertiary[:5]:
+            tkey = str(tertiary_item.get("key", "")).strip()
+            tcount = int(tertiary_item.get("count", 0) or 0)
+            if not tkey or tcount <= 0:
+                continue
+            detail = cause_by_label.get(canonical_tertiary_label(tkey), {})
+            quote = (
+                detail.get("user_voice_natural")
+                or detail.get("content_summary")
+                or detail.get("root_cause")
+                or ""
+            )
+            quote = str(quote).strip()
+            if not quote:
+                raise RuntimeError(f"典型用户原话缺失：{tkey}")
+            dist_rows.append([tkey, tertiary_item.get("share") or _pct(_safe_ratio(tcount, pcount)), quote])
+
+        tertiary_blocks: list[str] = []
+        for tertiary_item in primary_tertiary[:3]:
+            tkey = str(tertiary_item.get("key", "")).strip()
+            tcount = int(tertiary_item.get("count", 0) or 0)
+            tshare = _pct(_safe_ratio(tcount, pcount)) if pcount else "0.0%"
+            detail = cause_by_label.get(canonical_tertiary_label(tkey), {})
+            snippets: list[str] = []
+            content_summary = str(detail.get("content_summary", "")).strip()
+            cs_summary = str(detail.get("cs_reply_summary", "")).strip()
+            root_cause = str(detail.get("root_cause", "")).strip()
+            if content_summary and len(content_summary) > 10:
+                snippets.append(f"<p><strong>服务内容：</strong>{_e(content_summary.rstrip('。'))}。</p>")
+            if cs_summary and len(cs_summary) > 10:
+                snippets.append(f"<p><strong>客服应对：</strong>{_e(cs_summary.rstrip('。'))}。</p>")
+            if root_cause:
+                snippets.append(f"<p><strong>根因判断：</strong>{_e(root_cause.rstrip('。'))}。</p>")
+            if not snippets:
+                raise RuntimeError(f"三级标签分析小结缺失：{tkey}")
+            tertiary_blocks.append(
+                f"""
+                <article class="tertiary-detail">
+                  <h4>{_e(tkey)}（共{_n(tcount)}条，占该一级问题{_e(tshare)}）</h4>
+                  <div class="narrative-stack">{''.join(snippets)}</div>
+                </article>
+                """
+            )
+
+        cards.append(
+            f"""
+            <section class="chart-card chart-grid-wide primary-detail-card" data-reveal="card">
+              <div class="chart-header">
+                <div>
+                  <span class="chart-kicker">PRIMARY DETAIL</span>
+                  <h3>{cn_numbers[idx]}、{_e(pkey)}（共{_n(pcount)}条，占比{_e(pshare)}）</h3>
+                </div>
+              </div>
+              <h4>用户核心诉求分布</h4>
+              {_simple_table(["诉求类型", "频次占比", "典型用户原话"], dist_rows)}
+              <div class="tertiary-detail-list">{''.join(tertiary_blocks)}</div>
+              {_narrative_stack([llm_summary])}
+            </section>
+            """
+        )
+
+    overall_eval = narratives.get("primary_overall_evaluation") or []
+    if not isinstance(overall_eval, list) or len(overall_eval) < 2:
+        raise RuntimeError("一级标签综合评价缺失，报告生成失败。")
+    cards.append(
+        f"""
+        <section class="chart-card chart-grid-wide primary-detail-card" data-reveal="card">
+          <div class="chart-header">
+            <div>
+              <span class="chart-kicker">PRIMARY SUMMARY</span>
+              <h3>一级标签综合评价</h3>
+            </div>
+          </div>
+          {_narrative_stack([str(overall_eval[0]).strip(), str(overall_eval[1]).strip()])}
+        </section>
+        """
+    )
+    return f'<div class="section-stack chart-grid primary-detail-grid">{"".join(cards)}</div>'
+
+
+def _daily_detail_table_html(days: list[dict], anomalies: list[dict]) -> str:
+    anomaly_dates = {str(item.get("date")) for item in anomalies if item.get("date")}
+    rows: list[list[Any]] = []
+    for day in days:
+        date_text = str(day.get("date", ""))
+        match_text = "是" if _matchday(day) else "否"
+        if date_text in anomaly_dates:
+            match_text += " 异动"
+        top_tertiary = "、".join(str(item.get("key", "")) for item in (day.get("top_tertiary") or [])[:3] if item.get("key")) or "-"
+        rows.append([date_text, _n(day.get("count", 0)), _pct(day.get("negative_ratio", 0)), match_text, top_tertiary])
+
+    return f"""
+    <section class="chart-card chart-grid-wide" data-reveal="card">
+      <div class="chart-header">
+        <div>
+          <span class="chart-kicker">DAILY DETAIL</span>
+          <h3>每日明细数据</h3>
+        </div>
+      </div>
+      {_simple_table(["日期", "问题量", "负向占比", "赛事日", "主要三级问题"], rows, "暂无可展示的每日明细数据。")}
     </section>
     """
 
@@ -1043,6 +1513,10 @@ def _sorted_anomaly_days(anomalies: list[dict]) -> list[dict]:
     )
 
 
+def _sanitize_report_terms(text: str) -> str:
+    return (text or "").replace("反馈/投诉", "投诉").replace("反馈", "投诉")
+
+
 def _business_dimension_lines(result: dict) -> list[str]:
     service_type = result.get("service_type", [])
     service_total = _sum_counts(service_type)
@@ -1055,8 +1529,8 @@ def _business_dimension_lines(result: dict) -> list[str]:
     if service_type and service_total:
         top = service_type[0]
         lines.append(
-            f"业务维度上，服务类型「{top.get('key', '未标注')}」占比 {_pct(_safe_ratio(top.get('count', 0), service_total))}，"
-            f"高频服务类型集中在 {_tag_text(service_type, 3, service_total)}。"
+            f"业务维度上，用户投诉主要集中在订购退订、权益兑现和赛事观看体验等连续服务链路，"
+            f"说明当前问题更接近流程与规则理解叠加后的体验压力，而不是单一功能点异常。"
         )
     return lines
 
@@ -1267,6 +1741,7 @@ def _compact_anomaly_cards(anomalies: list[dict]) -> str:
     rows = []
     for day in sorted_days:
         match_text = _matchday_summary(day) if _matchday(day) else "非赛事日"
+        day_total = int(day.get("count", 0) or 0)
         rows.append(
             f"""
             <article class="signal-card signal-card-compact" data-reveal="item">
@@ -1275,14 +1750,15 @@ def _compact_anomaly_cards(anomalies: list[dict]) -> str:
                 <span class="signal-chip">日环比 {_pct(day.get("day_over_day_growth", 0))}</span>
               </div>
               <p>问题量 {_n(day["count"])} 件；负向占比 {_pct(day.get("negative_ratio", 0))}；赛事日标注：{_e(match_text)}。</p>
-              <p>主要一级问题：{_e(_tag_text(day.get("top_primary", []), 2))}；主要二级问题：{_e(_tag_text(day.get("top_secondary", []), 2))}；主要三级问题：{_e(_tag_text(day.get("top_tertiary", []), 3))}。</p>
-              <p>业务热点：服务类型 {_e(_tag_text(day.get("top_service_type", []), 2))}；涉及业务/会员类型 {_e(_tag_text(day.get("top_member_cluster", []), 2))}。</p>
+              <p>主要一级问题：{_e(_tag_text(day.get("top_primary", []), 2, total=day_total))}；主要二级问题：{_e(_tag_text(day.get("top_secondary", []), 2, total=day_total))}；主要三级问题：{_e(_tag_text(day.get("top_tertiary", []), 3, total=day_total))}。</p>
+              <p>业务热点：服务类型 {_e(_tag_text(day.get("top_service_type", []), 2, total=day_total))}；涉及业务/会员类型 {_e(_tag_text(day.get("top_member_cluster", []), 2, total=day_total))}。</p>
             </article>
             """
         )
     method = (
         "以上日期基于日聚合口径，日环比增长 ≥ 50% 且当日问题量 ≥ 5 件被识别为异动。"
         "按日环比降序排列，以下列出排名前三的异动节点。"
+        "表内所有标签和业务维度占比均以该日问题量为分母；多标签字段可重复，合计可能超过 100%。"
     )
     return f'<div class="narrative-stack"><p>{_e(method)}</p></div><div class="signal-grid">{"".join(rows)}</div>'
 
@@ -1364,11 +1840,11 @@ def _trend_voice_summary(items: list[dict]) -> list[str]:
     if not items:
         return ["当前趋势窗口内未提取到带赛事日标注的样例原声。"]
 
-    lead = items[0]
+    lead = max(items, key=lambda item: int(item.get("count", 0) or 0))
     lead_issues = "、".join(item.get("key", "") for item in lead.get("top_tertiary", [])[:3] if item.get("key")) or "无"
     lines = [
         f"赛事日样例中，{lead['date']} 的投诉最集中，共 {_n(lead['count'])} 件；相关原声主要围绕 {lead_issues} 展开。",
-        "从赛事日原声看，用户更容易在比赛前后集中反馈退订、权益兑换、订购失败和覆盖范围等即时体验问题。",
+        "从赛事日原声看，用户更容易在比赛前后集中投诉退订、权益兑换、订购失败和覆盖范围等即时体验问题。",
     ]
     if any(item.get("negative_ratio", 0) > 0.3 for item in items):
         high = max(items, key=lambda item: item.get("negative_ratio", 0))
@@ -1391,7 +1867,7 @@ def _trend_voice_cards(items: list[dict], narratives: dict[str, list[str]] | Non
             if sample.get("content_excerpt")
         )
         summary_text = _narrative_line_at(summary_lines, idx) or fallback_text or "暂无样例。"
-        issue_tags = _tags(item.get("top_tertiary", []))
+        issue_tags = _tags(item.get("top_tertiary", []), total=int(item.get("count", 0) or 0))
         cards.append(
             f"""
             <article class="voice-card" data-reveal="item">
@@ -1460,28 +1936,25 @@ def _distribution_insights(result: dict) -> list[str]:
     primary = result.get("primary", [])
     secondary = result.get("secondary", [])
     tertiary = result.get("tertiary", [])
-    primary_total = _sum_counts(primary)
-    secondary_total = _sum_counts(secondary)
-    tertiary_total = _sum_counts(tertiary)
     insights = []
     if not total and not unlabeled_total:
-        return ["当前筛选周期内未检索到可统计的工单数据。"]
+        return ["当前筛选周期内未检索到可统计的服务数据。"]
     if not labeled_total:
-        return ["当前筛选周期内没有可纳入主分布统计的已标注工单；未标注工单已单独展示。"]
+        return ["当前筛选周期内没有可纳入主分布统计的已标注服务数据；未标注数据已单独展示。"]
     if primary:
         top = primary[0]
         insights.append(
-            f"本周期共纳入 {total} 条反馈/投诉工单；一级问题中 {top['key']}（共{_n(top['count'])}条，占比{_pct(_safe_ratio(top['count'], primary_total))}）最集中，标签分布基于已完成标注的工单统计。"
+            f"本周期共纳入 {total} 条用户投诉数据；一级问题中 {top['key']}（共{_n(top['count'])}条，占比{_pct(_safe_ratio(top['count'], total))}）最集中，标签分布基于已完成标注的服务数据统计。"
         )
     if secondary:
         top_secondary = secondary[0]
         insights.append(
-            f"二级问题中 {top_secondary['key']}（共{_n(top_secondary['count'])}条，占比{_pct(_safe_ratio(top_secondary['count'], secondary_total))}）最集中。"
+            f"二级问题中 {top_secondary['key']}（共{_n(top_secondary['count'])}条，占比{_pct(_safe_ratio(top_secondary['count'], total))}）最集中。"
         )
     if tertiary:
         top5_count = _sum_counts(tertiary[:5])
         insights.append(
-            f"三级问题 TOP5 累计提及 {_n(top5_count)} 条，占三级标签提及量的 {_pct(_safe_ratio(top5_count, tertiary_total))}；首要痛点为 {tertiary[0]['key']}（共{_n(tertiary[0]['count'])}条，占比{_pct(_safe_ratio(tertiary[0]['count'], tertiary_total))}）。"
+            f"三级问题 TOP5 累计提及 {_n(top5_count)} 条，占三级标签提及量的 {_pct(_safe_ratio(top5_count, total))}；首要痛点为 {tertiary[0]['key']}（共{_n(tertiary[0]['count'])}条，占比{_pct(_safe_ratio(tertiary[0]['count'], total))}）。"
         )
     insights.extend(_business_dimension_lines(result))
     return insights
@@ -1539,11 +2012,11 @@ def _unlabeled_dist_lines(result: dict) -> list[str]:
     refund_demand = next((item["count"] for item in unlabeled_analysis.get("has_refund_demand", []) if item["key"] == "是"), 0)
     escalation = next((item["count"] for item in unlabeled_analysis.get("has_escalation", []) if item["key"] == "是"), 0)
     lines = [
-        f"本次共纳入 {total_with_unlabeled} 条工单，其中 {unlabeled_total} 条（{unlabeled_pct}）一/二/三级标签未标注，已从问题分布统计中排除。",
+        f"本次共纳入 {total_with_unlabeled} 条服务数据，其中 {unlabeled_total} 条（{unlabeled_pct}）一/二/三级标签未标注，已从问题分布统计中排除。",
     ]
     if emotion or customer_key_appeal or csp_name:
         lines.append(
-            f"从未标注工单的内容结构看，情绪以 {_tag_text(emotion, 2)} 为主，诉求集中在 {_tag_text(customer_key_appeal, 2)}，主要渠道/终端线索为 {_tag_text(csp_name, 2)}。"
+            f"从未标注服务数据的内容结构看，情绪以 {_tag_text(emotion, 2)} 为主，诉求集中在 {_tag_text(customer_key_appeal, 2)}，主要渠道/终端线索为 {_tag_text(csp_name, 2)}。"
         )
     return lines[:4]
 
@@ -1559,7 +2032,7 @@ def _unlabeled_trend_lines(result: dict) -> list[str]:
     unlabeled_peak = unlabeled_trend.get("peak_day")
     unlabeled_emotion_peak = unlabeled_trend.get("emotion_peak_day")
     lines = [
-        f"本周期共 {unlabeled_total} 条一/二/三级标签未标注工单，占原始总量的 {unlabeled_pct}，未纳入上述趋势计算。",
+        f"本周期共 {unlabeled_total} 条一/二/三级标签未标注服务数据，占原始总量的 {unlabeled_pct}，未纳入上述趋势计算。",
     ]
     if unlabeled_daily:
         date_range = f"{unlabeled_daily[0]['date']} 至 {unlabeled_daily[-1]['date']}"
@@ -1586,7 +2059,7 @@ def _insight_list(items: list[str], dark: bool = False) -> str:
     return f'<ul class="{cls}">{"".join(f"<li>{item}</li>" for item in items)}</ul>'
 
 
-def _unlabeled_card_html(lines: list[str], title: str = "未标注一二三级标签工单分析") -> str:
+def _unlabeled_card_html(lines: list[str], title: str = "未标注一二三级标签服务数据分析") -> str:
     if not lines:
         return ""
     html_lines = "".join(f"<li>{_e(line)}</li>" for line in lines)
@@ -1617,7 +2090,7 @@ def _section_focus_title(section_focus: str) -> str:
         return "问题分布概览"
     if section_focus == "trend":
         return "趋势与异动"
-    return "整体情况"
+    return "一、整体情况"
 
 
 def _section_focus_label(section_focus: str) -> str:
@@ -1641,7 +2114,7 @@ def _analysis_type_text(section_focus: str) -> str:
         return "1.1 问题分布概览"
     if section_focus == "trend":
         return "1.2 投诉趋势与异动表现"
-    return "一、整体情况（1.1 + 1.2）"
+    return "一、整体情况（1.1 + 1.2）— 咪咕视频中超赛事用户洞察分析专题报告"
 
 
 def _top_secondary_label(result: dict) -> str:
@@ -1663,7 +2136,7 @@ def _hero_signal(section_focus: str, total: int, peak_day: dict[str, Any] | None
         return "PEAK DAY", "无", "当前无可用趋势峰值"
     if section_focus == "distribution":
         return "TOTAL FEEDBACK", _n(total), "已纳入本次分布分析"
-    return "LIVE SIGNAL", _n(total), "已纳入本周期反馈/投诉"
+    return "LIVE SIGNAL", _n(total), "已纳入本周期投诉"
 
 
 def _hero_issue(section_focus: str, top_primary: dict | None, top_tertiary: dict | None, anomalies: list[dict]) -> tuple[str, str, str]:
@@ -1682,20 +2155,20 @@ def _hero_issue(section_focus: str, top_primary: dict | None, top_tertiary: dict
 def _build_kpis(section_focus: str, result: dict, total: int, top_primary: dict | None, top_tertiary: dict | None, peak_day: dict[str, Any] | None, trend_view: dict[str, Any]) -> list[dict[str, str]]:
     if section_focus == "distribution":
         return [
-            {"label": "反馈/投诉总量", "value": _n(total)},
+            {"label": "投诉总量", "value": _n(total)},
             {"label": "一级问题最高项", "value": _e(top_primary["key"]) if top_primary else "无"},
             {"label": "三级 TOP 问题", "value": _e(top_tertiary["key"]) if top_tertiary else "无"},
             {"label": "核心二级问题", "value": _e(_top_secondary_label(result))},
         ]
     if section_focus == "trend":
         return [
-            {"label": "反馈/投诉总量", "value": _n(total)},
+            {"label": "投诉总量", "value": _n(total)},
             {"label": "趋势峰值日", "value": _e(peak_day["date"][5:]) if peak_day else "无"},
             {"label": "峰值问题量", "value": _n(peak_day["count"]) if peak_day else "无"},
             {"label": "异动天数", "value": _n(len(trend_view.get("anomalies", [])))},
         ]
     return [
-        {"label": "反馈/投诉总量", "value": _n(total)},
+        {"label": "投诉总量", "value": _n(total)},
         {"label": "一级问题最高项", "value": _e(top_primary["key"]) if top_primary else "无"},
         {"label": "三级 TOP 问题", "value": _e(top_tertiary["key"]) if top_tertiary else "无"},
         {"label": "趋势峰值日", "value": _e(peak_day["date"][5:]) if peak_day else "无"},
@@ -1716,23 +2189,21 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     top_primary = result["primary"][0] if result.get("primary") else None
     top_secondary = result["secondary"][0] if result.get("secondary") else None
     top_tertiary = result["tertiary"][0] if result.get("tertiary") else None
-    period_start = result["period"].get("min") or result["filters"].get("start_date") or "未限定"
-    period_end = result["period"].get("max") or result["filters"].get("end_date") or "未限定"
-    query = result.get("query") or {}
-    section_focus = query.get("section_focus") or "full"
     trend_view = _build_trend_view(result.get("daily", []), result.get("filters", {}), result.get("anomalies", []))
-    primary_total = _sum_counts(result.get("primary", []))
-    secondary_total = _sum_counts(result.get("secondary", []))
-    tertiary_total = _sum_counts(result.get("tertiary", []))
+    context = build_report_context(result, trend_view)
+    period_start = context.period_start
+    period_end = context.period_end
+    query = context.query
+    section_focus = context.section_focus
     peak_day = max(trend_view.get("days", []), key=lambda day: day["count"], default=None)
-    total = result.get("total_with_unlabeled", result.get("total", 0))
+    total = context.total
     source_text = _source_files_text(result.get("source_files", []))
     schedule = _schedule_status(result)
-    narratives = result.get("narratives") or {}
+    narratives = context.narratives
     trend_chart_summary = narratives.get("trend_chart_summary") or _trend_chart_summary(trend_view)
     trend_voice_items = _trend_voice_items(trend_view)
     trend_voice_summary = narratives.get("trend_voice_summary") or _trend_voice_summary(trend_voice_items)
-    daily_focus_rows = _selected_daily_rows(trend_view.get("days", []), trend_view.get("anomalies", []))
+    daily_detail_rows = trend_view.get("days", [])
     focus_title = _section_focus_title(section_focus)
     focus_label = _section_focus_label(section_focus)
     focus_description = _section_focus_description(section_focus)
@@ -1756,22 +2227,23 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     avg_duration = result.get("avg_duration_minutes")
     avg_duration_text = f"{float(avg_duration):.1f} 分钟" if isinstance(avg_duration, (int, float)) and not math.isnan(float(avg_duration)) else "未覆盖"
     primary_summary = (
-        f"一级问题以「{top_primary['key']}」最集中，提及 {_n(top_primary['count'])} 次，占一级标签提及量的 {_pct(_safe_ratio(top_primary['count'], primary_total))}。"
+        f"一级问题以「{top_primary['key']}」最集中，提及 {_n(top_primary['count'])} 次，占比 {_pct(_safe_ratio(top_primary['count'], total))}。"
         if top_primary
         else "当前没有可展示的一级问题数据。"
     )
     secondary_summary = (
-        f"二级问题中「{top_secondary['key']}」提及 {_n(top_secondary['count'])} 次，占二级标签提及量的 {_pct(_safe_ratio(top_secondary['count'], secondary_total))}。"
+        f"二级问题中「{top_secondary['key']}」提及 {_n(top_secondary['count'])} 次，占比 {_pct(_safe_ratio(top_secondary['count'], total))}。"
         if top_secondary
         else "当前没有可展示的二级问题数据。"
     )
     tertiary_summary = (
-        f"三级问题中「{top_tertiary['key']}」为核心痛点，提及 {_n(top_tertiary['count'])} 次，占三级标签提及量的 {_pct(_safe_ratio(top_tertiary['count'], tertiary_total))}。"
+        f"三级问题中「{top_tertiary['key']}」为核心痛点，提及 {_n(top_tertiary['count'])} 次，占比 {_pct(_safe_ratio(top_tertiary['count'], total))}。"
         if top_tertiary
         else "当前没有可展示的三级问题数据。"
     )
 
     distribution_section = f"""
+    {_render_executive_summary_html(narratives.get("executive_summary", ""))}
     <section class="report-section" data-reveal="section" data-lazy="section">
       <div class="section-label"><span class="pulse-dot"></span><strong>SECTION 1.1</strong></div>
       <div class="section-heading">
@@ -1795,10 +2267,15 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         {_top_bar_chart(result.get("tertiary", []))}
       </div>
       <div class="section-stack chart-grid">
-        {_overview_table("一级问题概览", "PRIMARY", result.get("primary", []), primary_total, narratives.get("primary_overview") or [primary_summary])}
-        {_overview_table("二级问题概览", "SECONDARY", result.get("secondary", []), secondary_total, narratives.get("secondary_overview") or [secondary_summary])}
-        {_overview_table("三级问题概览", "TERTIARY", result.get("tertiary", []), tertiary_total, narratives.get("tertiary_overview") or [tertiary_summary])}
+        {_overview_table("一级问题概览", "PRIMARY", result.get("primary", []), total, narratives.get("primary_overview") or [primary_summary])}
+        {_overview_table("二级问题概览", "SECONDARY", result.get("secondary", []), total, narratives.get("secondary_overview") or [secondary_summary])}
+        {_overview_table("三级问题概览", "TERTIARY", result.get("tertiary", []), total, narratives.get("tertiary_overview") or [tertiary_summary])}
       </div>
+      {_primary_detail_breakdown_html(result, narratives, total)}
+      {_province_analysis_section(result.get("province", []), result.get("province_refund", []), narratives)}
+      {_refund_analysis_section(result.get("refund", []), result.get("refund_tertiary", []), result.get("escalation", []), narratives)}
+      {_render_four_ops_html(result.get("four_ops_map", []), result.get("four_products_map", []), result.get("four_mapping_table", []))}
+      {_render_typical_case_deep_dive_html(narratives.get("typical_case_deep_dive", []))}
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
           <div>
@@ -1806,8 +2283,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
             <h3>三级问题原因线索、样例原声与典型案例</h3>
           </div>
         </div>
-        {_narrative_stack(narratives.get("cause_summary"))}
-        {_narrative_stack(narratives.get("voice_summary"))}
+        {_render_tertiary_cause_detail_section(narratives.get("tertiary_cause_detail"))}
         {_merged_cause_voice_table(result, narratives)}
       </section>
     </section>
@@ -1830,6 +2306,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
         {_narrative_stack(narratives.get("trend_conclusion") or _trend_insights(result, trend_view))}
       </div>
       {_trend_svg(trend_view.get("days", []), focus_note=trend_view.get("note"))}
+      {_daily_detail_table_html(daily_detail_rows, trend_view.get("anomalies", []))}
       <section class="chart-card chart-grid-wide" data-reveal="card">
         <div class="chart-header">
           <div>
@@ -2361,6 +2838,31 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     }
     .chart-grid { margin-top: 18px; }
     .chart-grid-wide { margin-top: 18px; }
+    .primary-detail-grid {
+      grid-template-columns: 1fr;
+    }
+    .primary-detail-grid .chart-grid-wide {
+      margin-top: 0;
+    }
+    .primary-detail-card > h4 {
+      margin: 6px 0 10px;
+      font-size: 0.96rem;
+    }
+    .tertiary-detail-list {
+      display: grid;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .tertiary-detail {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: rgba(248,250,252,0.72);
+    }
+    .tertiary-detail h4 {
+      margin: 0 0 8px;
+      font-size: 0.98rem;
+    }
     .chart-card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -2735,23 +3237,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     .table-scroll {
       overflow-x: auto;
       padding-bottom: 4px;
-      max-width: 100%;
-      -webkit-overflow-scrolling: touch;
-    }
-    .table-scroll-wide {
-      margin-top: 14px;
-      padding-bottom: 10px;
-    }
-    .table-scroll-wide::-webkit-scrollbar {
-      height: 10px;
-    }
-    .table-scroll-wide::-webkit-scrollbar-track {
-      background: var(--muted);
-      border-radius: 999px;
-    }
-    .table-scroll-wide::-webkit-scrollbar-thumb {
-      background: rgba(0,82,255,0.42);
-      border-radius: 999px;
     }
     .data-table {
       width: 100%;
@@ -2762,13 +3247,6 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     .drilldown-table {
       min-width: 1280px;
     }
-    .cause-voice-table {
-      min-width: 2080px;
-      table-layout: fixed;
-    }
-    .cause-voice-table .cause-col-issue { width: 210px; }
-    .cause-voice-table .cause-col-count { width: 110px; }
-    .cause-voice-table .cause-col-summary { width: 586px; }
     .data-table th,
     .data-table td {
       padding: 12px 12px;
@@ -2970,7 +3448,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-   <title>一、整体情况 - 视频业务用户反馈分析</title>
+   <title>一、整体情况 — 咪咕视频中超赛事用户洞察分析专题报告</title>
   <script>document.documentElement.classList.add("has-js");</script>
   {style}
 </head>
@@ -2979,7 +3457,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
     <section class="hero">
       <div class="hero-copy">
         <div class="section-label"><span class="pulse-dot"></span><strong>{_e(focus_label)}</strong></div>
-         <h1>视频业务用户反馈<span class="gradient-text">{_e(focus_title)}</span></h1>
+         <h1>咪咕视频中超赛事<span class="gradient-text">{_e(focus_title)}</span></h1>
         <p class="lead">{_e(focus_description)}</p>
         <p class="subtle hero-meta">报告周期：{_e(period_start[:10]) if len(period_start) > 10 else _e(period_start)} 至 {_e(period_end[:10]) if len(period_end) > 10 else _e(period_end)}</p>
       </div>
@@ -3122,7 +3600,7 @@ def render_html_report(result: dict, output_path: Path) -> Path:
 </html>
 """
 
-    html = enforce_style_contract(html)
+    html = _sanitize_report_terms(enforce_style_contract(html))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path

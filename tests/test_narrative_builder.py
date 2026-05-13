@@ -4,160 +4,121 @@ import json
 import unittest
 
 from overall_situation_agent.llm_client import LLMResponse
-from overall_situation_agent.narrative_builder import NARRATIVE_KEYS, build_report_narratives
+from overall_situation_agent.narrative_builder import (
+    _build_executive_summary,
+    _build_tertiary_cause_detail_llm,
+    _build_trend_voice_summary_fallback,
+)
 
 
-class _FakeLLM:
+class FakeLLM:
     enabled = True
     report_enabled = True
-    report_timeout = 3
-    report_max_retries = 0
-    report_max_tokens = 321
+    report_timeout = 60
+    report_max_tokens = 4000
 
-    def __init__(self, response: LLMResponse):
-        self.response = response
-        self.kwargs = None
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.prompts: list[str] = []
 
     def chat(self, messages, **kwargs):
-        self.kwargs = kwargs
-        return self.response
+        self.prompts.append(messages[-1]["content"])
+        if not self.responses:
+            raise AssertionError("unexpected extra LLM call")
+        return LLMResponse(content=self.responses.pop(0), used_fallback=False)
 
 
-class _DisabledLLM:
-    enabled = False
-    report_enabled = False
+def _response(user_voice: str) -> str:
+    return json.dumps(
+        {
+            "content_summary": "用户集中反映退订入口、续费提醒和退费规则解释不清，咨询时希望尽快获得明确处理结果。",
+            "cs_reply_summary": "客服主要围绕规则解释、操作引导和诉求记录进行回应，处理口径偏流程说明。",
+            "root_cause": "根因在于会员续费提醒和退订路径说明不足，用户对后续处理预期不稳定。",
+            "user_voice_natural": user_voice,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _evidence() -> list[dict]:
+    return [
+        {
+            "key": "退订困难/自动续费争议",
+            "count": 10,
+            "share": 1.0,
+            "samples": [
+                {
+                    "content_excerpt": "用户咨询会员退订和退费规则。",
+                    "cs_reply_excerpt": "客服解释会员规则并记录诉求。",
+                }
+            ],
+            "appeal_agg": [{"key": "退订退费", "count": 10}],
+            "cs_action_agg": [{"key": "解释规则", "count": 10}],
+        }
+    ]
 
 
 class NarrativeBuilderTests(unittest.TestCase):
-    def test_report_narratives_use_bounded_best_effort_llm_call(self) -> None:
-        content = json.dumps({key: [f"{key} ok"] for key in NARRATIVE_KEYS}, ensure_ascii=False)
-        llm = _FakeLLM(LLMResponse(content=content))
+    def test_user_voice_in_range_is_accepted_without_retry(self) -> None:
+        voice = "诉" * 120
+        llm = FakeLLM([_response(voice)])
 
-        narratives = build_report_narratives({"total": 10}, llm)
+        details = _build_tertiary_cause_detail_llm(_evidence(), llm)  # type: ignore[arg-type]
 
-        self.assertEqual(narratives["executive_summary"], ["executive_summary ok"])
-        self.assertEqual(llm.kwargs["timeout_seconds"], 180)
-        self.assertEqual(llm.kwargs["max_retries"], 1)
-        self.assertEqual(llm.kwargs["max_tokens"], 8000)
+        self.assertEqual(len(llm.prompts), 1)
+        self.assertEqual(details[0]["user_voice_natural"], voice)
 
-    def test_report_narratives_fall_back_when_llm_is_unavailable(self) -> None:
-        llm = _FakeLLM(LLMResponse(content="", used_fallback=True))
+    def test_user_voice_out_of_range_retries_then_accepts_valid_result(self) -> None:
+        short_voice = "短" * 80
+        valid_voice = "诉" * 120
+        llm = FakeLLM([_response(short_voice), _response(valid_voice)])
 
-        with self.assertLogs("overall_situation_agent.narrative_builder", level="WARNING"):
-            narratives = build_report_narratives({"total": 10}, llm)
+        details = _build_tertiary_cause_detail_llm(_evidence(), llm)  # type: ignore[arg-type]
 
-        self.assertTrue(narratives["distribution_conclusion"])
-        self.assertIn("本周期共纳入", narratives["distribution_conclusion"][0])
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertIn("100-150字", llm.prompts[1])
+        self.assertEqual(details[0]["user_voice_natural"], valid_voice)
 
-    def test_unlabeled_summary_is_separate_from_main_conclusions(self) -> None:
+    def test_user_voice_still_out_of_range_after_retry_is_kept_complete(self) -> None:
+        short_voice = "短" * 80
+        long_voice = "长" * 170
+        llm = FakeLLM([_response(short_voice), _response(long_voice)])
+
+        details = _build_tertiary_cause_detail_llm(_evidence(), llm)  # type: ignore[arg-type]
+
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertEqual(details[0]["user_voice_natural"], long_voice)
+
+    def test_trend_voice_summary_uses_highest_count_matchday(self) -> None:
+        summary = _build_trend_voice_summary_fallback([
+            {"date": "2026-03-06", "count": 126, "top_tertiary": [{"key": "退订困难/自动续费争议"}]},
+            {"date": "2026-03-07", "count": 304, "top_tertiary": [{"key": "权益无法兑换/使用"}]},
+            {"date": "2026-03-14", "count": 242, "top_tertiary": [{"key": "直播无法回看"}]},
+        ])
+
+        self.assertIn("2026-03-07", summary[0])
+        self.assertNotIn("2026-03-06 的投诉最集中", summary[0])
+
+    def test_executive_summary_retries_and_sanitizes_retention_friction_advice(self) -> None:
+        banned = "二、三大痛点\n退订流程不畅。\n\n四、行动建议\n增加退订操作的二次确认弹窗，并通过短信告知用户。"
+        llm = FakeLLM([banned, banned])
         result = {
+            "total_with_unlabeled": 10,
             "total": 10,
-            "total_with_unlabeled": 14,
+            "period": {"min": "2026-03-01", "max": "2026-03-31"},
+            "service_type": [{"key": "投诉", "count": 10}],
             "primary": [{"key": "业务体验", "count": 10}],
-            "secondary": [{"key": "权益使用", "count": 10}],
-            "tertiary": [{"key": "权益无法兑换", "count": 8}],
-            "unlabeled_analysis": {
-                "unlabeled_total": 4,
-                "emotion": [{"key": "愤怒", "count": 2}],
-                "csp_name": [{"key": "咪咕视频APP", "count": 3}],
-                "operation_action": [{"key": "足球通首月5折活动", "count": 2}],
-                "latent_need": [{"key": "希望规则更清楚", "count": 2}],
-                "customer_key_appeal": [{"key": "要求退费", "count": 2}],
-                "has_refund_demand": [{"key": "是", "count": 1}],
-                "has_escalation": [{"key": "是", "count": 1}],
-            },
-            "unlabeled_trend_analysis": {
-                "unlabeled_total": 4,
-                "daily": [
-                    {"date": "2026-03-01", "count": 1, "negative_ratio": 0},
-                    {"date": "2026-03-02", "count": 3, "negative_ratio": 0.5},
-                ],
-                "peak_day": {"date": "2026-03-02", "count": 3},
-                "emotion_peak_day": {"date": "2026-03-02", "negative_ratio": 0.5},
-            },
+            "tertiary": [{"key": "退订困难/自动续费争议", "count": 10}],
+            "schedule": {},
+            "daily": [],
+            "province": [],
         }
 
-        narratives = build_report_narratives(result, _DisabledLLM())
+        summary = _build_executive_summary(result, llm)  # type: ignore[arg-type]
 
-        main_text = "\n".join(narratives["distribution_conclusion"] + narratives["trend_conclusion"])
-        unlabeled_text = "\n".join(narratives["unlabeled_distribution_summary"] + narratives["unlabeled_trend_summary"])
-        self.assertNotIn("未标注一二三级标签", main_text)
-        self.assertNotIn("一/二/三级标签未标注", main_text)
-        self.assertIn("一/二/三级标签未标注", unlabeled_text)
-        self.assertNotIn("TOP5", unlabeled_text)
-        self.assertNotIn("典型样例", unlabeled_text)
-
-    def test_main_narratives_use_total_with_unlabeled_as_overall_total(self) -> None:
-        result = {
-            "total": 10,
-            "total_with_unlabeled": 14,
-            "primary": [{"key": "业务体验", "count": 10}],
-            "secondary": [{"key": "权益使用", "count": 10}],
-            "tertiary": [{"key": "权益无法兑换", "count": 8}],
-            "unlabeled_analysis": {"unlabeled_total": 4},
-        }
-
-        narratives = build_report_narratives(result, _DisabledLLM())
-
-        self.assertIn("14", narratives["executive_summary"][0])
-        self.assertIn("14", narratives["distribution_conclusion"][0])
-        self.assertNotIn("10 条已标注", narratives["distribution_conclusion"][0])
-
-    def test_fallback_label_counts_include_share_in_conclusions(self) -> None:
-        result = {
-            "total": 10,
-            "total_with_unlabeled": 14,
-            "primary": [{"key": "业务体验", "count": 6}, {"key": "使用体验", "count": 4}],
-            "secondary": [{"key": "计费争议", "count": 7}, {"key": "权益使用", "count": 3}],
-            "tertiary": [{"key": "退订困难", "count": 5}, {"key": "权益无法兑换", "count": 5}],
-            "unlabeled_analysis": {"unlabeled_total": 4},
-        }
-
-        narratives = build_report_narratives(result, _DisabledLLM())
-        text = "\n".join(narratives["distribution_conclusion"])
-
-        self.assertIn("业务体验（共6条，占比60.0%）", text)
-        self.assertIn("计费争议（共7条，占比70.0%）", text)
-        self.assertIn("退订困难（共5条，占比50.0%）", text)
-        self.assertNotIn("业务体验（6）", text)
-
-    def test_fallback_narratives_include_business_and_matchday_context(self) -> None:
-        result = {
-            "total": 10,
-            "total_with_unlabeled": 14,
-            "primary": [{"key": "业务体验", "count": 10}],
-            "secondary": [{"key": "权益使用", "count": 10}],
-            "tertiary": [{"key": "权益无法兑换", "count": 8}],
-            "service_type": [{"key": "业务类", "count": 7}, {"key": "体验类", "count": 3}],
-            "biz_member_cluster": [{"key": "钻石会员", "count": 5}],
-            "daily": [
-                {
-                    "date": "2026-03-07",
-                    "count": 10,
-                    "negative_ratio": 0.4,
-                    "is_matchday": True,
-                    "matchday": {"match_summary": "第1轮 A队 vs B队"},
-                    "top_primary": [{"key": "业务体验", "count": 10}],
-                    "top_secondary": [{"key": "权益使用", "count": 10}],
-                    "top_tertiary": [{"key": "权益无法兑换", "count": 8}],
-                    "top_service_type": [{"key": "业务类", "count": 7}],
-                    "top_member_cluster": [{"key": "钻石会员", "count": 5}],
-                }
-            ],
-            "schedule": {"status": "loaded", "source_name": "赛程.xlsx"},
-            "unlabeled_analysis": {"unlabeled_total": 4},
-        }
-
-        narratives = build_report_narratives(result, _DisabledLLM())
-
-        self.assertTrue(any("业务维度" in line for line in narratives["distribution_conclusion"]))
-        trend_text = "\n".join(narratives["trend_conclusion"])
-        self.assertIn("有比赛的是", trend_text)
-        self.assertIn("赛事日合计问题量", trend_text)
-        self.assertNotIn("已加载赛程文件", trend_text)
-        self.assertNotIn("赛事日标注", trend_text)
-        self.assertNotIn("一级/二级/三级", trend_text)
-        self.assertNotIn("业务热点", trend_text)
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertNotIn("退订操作的二次确认弹窗", summary)
+        self.assertIn("自动扣费前增加确认提示", summary)
 
 
 if __name__ == "__main__":

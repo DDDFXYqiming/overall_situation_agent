@@ -33,6 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser.add_argument("--recreate-index", action="store_true")
     chat_parser.add_argument("--schedule-input", type=Path, help="Optional league schedule Excel file for matchday markers.")
 
+    serve_parser = subparsers.add_parser("serve", help="Start the local FastAPI/SSE API server.")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8000)
+
     return parser
 
 
@@ -91,6 +95,19 @@ def main() -> None:
             result = agent.import_data(args.import_input, recreate_index=args.recreate_index)
             print(result.message)
         InteractiveOverallSituationApp(settings, schedule_input=args.schedule_input).run()
+        return
+
+    if args.command == "serve":
+        try:
+            import uvicorn
+
+            from .api import create_app
+        except ModuleNotFoundError as exc:
+            missing = exc.name or "unknown"
+            raise SystemExit(
+                f"Missing dependency [{missing}]. Please run: python -m pip install -r requirements.txt"
+            ) from exc
+        uvicorn.run(create_app(settings), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

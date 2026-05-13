@@ -30,6 +30,16 @@ KEYWORD_FIELDS = [
     "match_label",
     "has_refund_demand",
     "has_escalation",
+    "session_id",
+    "phone_number",
+    "product_name",
+    "message_subtype",
+    "message_type",
+    "channel_id",
+    "channel_name",
+    "user_identity",
+    "four_product_level",
+    "four_operation",
 ]
 
 TEXT_FIELDS = [
@@ -71,6 +81,8 @@ MULTI_VALUE_FIELDS = {
     "biz_member_cluster",
     "marketing_activity_match_keywords",
     "match_label",
+    "four_product_level",
+    "four_operation",
 }
 
 NEGATIVE_EMOTIONS = ["愤怒", "失望", "焦虑", "不满", "烦躁"]

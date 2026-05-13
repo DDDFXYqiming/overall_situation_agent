@@ -12,7 +12,6 @@ from .report import (
     _matchday,
     _matchday_note,
     _matchday_summary,
-    _cause_field_summary_at,
     _narrative_line_at,
     _natural_sample_summary,
     _pct,
@@ -21,6 +20,7 @@ from .report import (
     _selected_daily_rows,
     _source_files_text,
     _sorted_anomaly_days,
+    _strip_emoji,
     _sum_counts,
     _trend_chart_summary,
     _trend_insights,
@@ -29,6 +29,8 @@ from .report import (
     _unlabeled_dist_lines,
     _unlabeled_trend_lines,
 )
+from .report_context import build_report_context
+from .taxonomy import CANONICAL_PRIMARY_TERTIARY, canonical_tertiary_label, primary_top_tertiary_items
 
 
 def _text(value: Any) -> str:
@@ -61,7 +63,7 @@ def _paragraphs(lines: list[str] | None, fallback: list[str] | None = None) -> s
     return "\n\n".join(_text(line) for line in selected)
 
 
-def _unlabeled_md_block(lines: list[str], title: str = "未标注一二三级标签工单分析") -> str:
+def _unlabeled_md_block(lines: list[str], title: str = "未标注一二三级标签服务数据分析") -> str:
     if not lines:
         return ""
     body = "\n\n".join(_text(line) for line in lines)
@@ -81,6 +83,10 @@ def _chart_note(original: str, markdown_view: str = "数据表") -> str:
     return f"<small>原图：{original}；Markdown 展示：{markdown_view}。</small>"
 
 
+def _sanitize_report_terms(text: str) -> str:
+    return (text or "").replace("反馈/投诉", "投诉").replace("反馈", "投诉")
+
+
 def _rank_table(items: list[dict], total: int, label_name: str, limit: int = 10) -> str:
     rows = []
     for idx, item in enumerate([entry for entry in items if entry.get("count", 0) > 0][:limit], start=1):
@@ -89,15 +95,15 @@ def _rank_table(items: list[dict], total: int, label_name: str, limit: int = 10)
     return _table(["排名", label_name, "提及量", "占比"], rows)
 
 
-def _tag_counts(items: list[dict], limit: int = 5) -> str:
+def _tag_counts(items: list[dict], limit: int = 5, total: int | None = None) -> str:
     visible = [item for item in items if item.get("count", 0) > 0][:limit]
     if not visible:
         return "无"
-    total = sum(int(item.get("count", 0)) for item in visible)
+    denominator = total if total is not None else _sum_counts(items)
     parts = []
     for item in visible:
         count = int(item.get("count", 0))
-        pct = f"{count / total * 100:.1f}%" if total > 0 else "0.0%"
+        pct = f"{count / denominator * 100:.1f}%" if denominator > 0 else "0.0%"
         parts.append(f"{item.get('key', '未标注')}（共{_n(count)}条，占比{pct}）")
     return "、".join(parts)
 
@@ -118,10 +124,10 @@ def _duration_text(value: Any) -> str:
     return "未覆盖"
 
 
-def _maybe_tag_row(label: str, items: list[dict], limit: int = 5) -> list[Any] | None:
+def _maybe_tag_row(label: str, items: list[dict], limit: int = 5, total: int | None = None) -> list[Any] | None:
     if not any(item.get("count", 0) > 0 for item in items):
         return None
-    return [label, _tag_counts(items, limit=limit)]
+    return [label, _tag_counts(items, limit=limit, total=total)]
 
 
 def _compact_rows(rows: list[list[Any] | None]) -> list[list[Any]]:
@@ -265,20 +271,18 @@ def _merged_cause_voice_markdown(result: dict, narratives: dict[str, list[str]] 
     if not examples:
         return ""
     narratives = narratives or {}
+    summary_lines = narratives.get("cause_voice_sample_summaries") or []
     rows = []
     for idx, item in enumerate(examples):
         count = int(item.get("count", 0))
-        field_summary = _cause_field_summary_at(narratives, item, idx)
-        rows.append(
-            [
-                item.get("key", "未标注"),
-                f"{_n(count)}条",
-                field_summary.get("content_reply_summary", ""),
-                field_summary.get("appeal_keyword_summary", ""),
-                field_summary.get("cs_action_keyword_summary", ""),
-            ]
+        appeal_text = _key_text(item.get("top_appeals", []), 3)
+        sample = item.get("samples", [{}])[0] if item.get("samples") else {}
+        summary_text = _narrative_line_at(summary_lines, idx) or _natural_sample_summary(
+            sample.get("content_excerpt", ""),
+            _text(item.get("key") or ""),
         )
-    return _table(["三级问题", "提及量", "工单内容与客服回复总结", "客户诉求与关键词总结", "客服处理动作与关键词总结"], rows)
+        rows.append([item.get("key", "未标注"), f"{_n(count)}条", appeal_text, summary_text])
+    return _table(["三级问题", "提及量", "高频诉求", "样例摘要"], rows)
 
 
 def _matchday_text(day: dict) -> str:
@@ -314,21 +318,23 @@ def _anomaly_table(anomalies: list[dict]) -> str:
         return "当前周期未识别到日环比超过 50% 且当日问题量不少于 5 件的明显异动。"
     rows = []
     for day in _sorted_anomaly_days(anomalies)[:3]:
+        day_total = int(day.get("count", 0) or 0)
         rows.append(
             [
                 day.get("date"),
                 _pct(float(day.get("day_over_day_growth", 0))),
                 _pct(float(day.get("negative_ratio", 0))),
                 _matchday_text(day),
-                _tag_counts(day.get("top_primary", []), limit=2),
-                _tag_counts(day.get("top_secondary", []), limit=2),
-                _tag_counts(day.get("top_tertiary", []), limit=3),
-                f"服务类型：{_tag_counts(day.get('top_service_type', []), limit=2)}；涉及业务/会员类型：{_tag_counts(day.get('top_member_cluster', []), limit=2)}",
+                _tag_counts(day.get("top_primary", []), limit=2, total=day_total),
+                _tag_counts(day.get("top_secondary", []), limit=2, total=day_total),
+                _tag_counts(day.get("top_tertiary", []), limit=3, total=day_total),
+                f"服务类型：{_tag_counts(day.get('top_service_type', []), limit=2, total=day_total)}；涉及业务/会员类型：{_tag_counts(day.get('top_member_cluster', []), limit=2, total=day_total)}",
             ]
         )
     method = (
         "以上日期基于日聚合口径，日环比增长 ≥ 50% 且当日问题量 ≥ 5 件被识别为异动。"
         "按日环比降序排列，以下列出排名前三的异动节点。"
+        "表内所有标签和业务维度占比均以该日问题量为分母；多标签字段可重复，合计可能超过 100%。"
     )
     table = _table(["日期", "日环比", "负向占比", "赛事日", "主要一级问题", "主要二级问题", "主要三级问题", "业务维度热点"], rows)
     return f"{method}\n\n{table}"
@@ -341,6 +347,29 @@ def _simple_distribution_table(title: str, items: list[dict], original_chart: st
         count = int(item.get("count", 0))
         rows.append([idx, item.get("key", "未标注"), _n(count), _pct(_safe_ratio(count, total))])
     return f"#### {title}\n\n{_chart_note(original_chart)}\n\n{_table(['排名', '类型', '提及量', '占比'], rows)}"
+
+
+def _daily_detail_table(trend_view: dict) -> str:
+    """Render daily data table for chart reconstruction."""
+    days = trend_view.get("days", [])
+    anomalies = trend_view.get("anomalies", [])
+    if not days:
+        return "暂无可展示的每日明细数据。"
+    anomaly_dates = {a["date"] for a in anomalies if a.get("date")}
+    headers = ["日期", "问题量", "负向占比", "赛事日", "主要三级问题"]
+    rows = []
+    for day in days:
+        date_str = str(day.get("date", ""))
+        count = _n(day.get("count", 0))
+        neg = _pct(day.get("negative_ratio", 0))
+        is_match = "是" if _matchday(day) else "否"
+        if date_str in anomaly_dates:
+            is_match += " \u26a1\u5f02\u52a8"
+        top_tert = "\u3001".join(
+            t.get("key", "") for t in (day.get("top_tertiary") or [])[:3]
+        ) or "\u2014"
+        rows.append([date_str, count, neg, is_match, top_tert])
+    return _table(headers, rows)
 
 
 def _trend_voice_markdown(trend_view: dict[str, Any], narratives: dict[str, list[str]]) -> str:
@@ -363,7 +392,7 @@ def _trend_voice_markdown(trend_view: dict[str, Any], narratives: dict[str, list
                     f"- 问题量：{_n(item.get('count', 0))} 件",
                     f"- 负向占比：{_pct(float(item.get('negative_ratio', 0)))}",
                     f"- 赛事摘要：{_text(item.get('match_summary') or '赛事日')}",
-                    f"- 主要问题：{_tag_counts(item.get('top_tertiary', []), limit=3)}",
+                    f"- 主要问题：{_tag_counts(item.get('top_tertiary', []), limit=3, total=int(item.get('count', 0) or 0))}",
                     f"- 样例摘要：{sample_text}",
                 ]
             )
@@ -371,22 +400,329 @@ def _trend_voice_markdown(trend_view: dict[str, Any], narratives: dict[str, list
     return "\n\n".join(blocks)
 
 
+
+def _tertiary_cause_detail_md(details) -> str:
+    if not details:
+        return ""
+    headers = ["排名", "三级问题", "提及量/占比",
+               "服务内容总结", "客服回复总结",
+               "客户关键诉求", "诉求关键词",
+               "客服处理动作", "客服关键词", "根因判断"]
+    rows = []
+    for idx, item in enumerate(details):
+        label = str(item.get("label", ""))
+        count = _n(item.get("count", 0))
+        share = _text(item.get("share", ""))
+        rows.append([
+            "TOP" + str(idx + 1),
+            label,
+            count + " / " + share,
+            _text(item.get("content_summary", "")),
+            _text(item.get("cs_reply_summary", "")),
+            _text(item.get("customer_appeal_summary", "")),
+            _text(item.get("customer_keywords_summary", "")),
+            _text(item.get("cs_action_summary", "")),
+            _text(item.get("cs_keywords_summary", "")),
+            _text(item.get("root_cause", "")),
+        ])
+    return _table(headers, rows)
+
+
+
+def _province_analysis_md(province_data: list, narratives: dict) -> str:
+    if not province_data:
+        return ""
+
+    blocks: list[str] = []
+    blocks.append("#### 省份投诉分布与区域特征")
+
+    # LLM narrative
+    narrative = _paragraphs(narratives.get("province_analysis") or [])
+    if narrative:
+        blocks.append(narrative)
+
+    # Province distribution table
+    blocks.append(_chart_note("省份投诉分布条形图"))
+    total = _sum_counts(province_data)
+    rows = []
+    for idx, item in enumerate([p for p in province_data if p.get("count", 0) > 0][:10], start=1):
+        count = int(item.get("count", 0))
+        rows.append([idx, item.get("key", "未标注"), _n(count), _pct(_safe_ratio(count, total))])
+    if rows:
+        blocks.append("**省份投诉分布TOP10**\n")
+        blocks.append(_table(["排名", "省份", "提及量", "占比"], rows))
+
+    return "\n\n".join(blocks)
+
+
+def _refund_analysis_md(refund_data: list, refund_tertiary_data: list, escalation_data: list, narratives: dict) -> str:
+    if not refund_data:
+        return ""
+
+    blocks: list[str] = []
+    blocks.append("#### 退费诉求专题分析")
+
+    # LLM narrative
+    narrative = _paragraphs(narratives.get("refund_analysis") or [])
+    if narrative:
+        blocks.append(narrative)
+
+    # Refund distribution table
+    blocks.append(_chart_note("退费诉求分布饼状图"))
+    refund_total = _sum_counts(refund_data)
+    refund_rows = []
+    for idx, item in enumerate([r for r in refund_data if r.get("count", 0) > 0][:5], start=1):
+        count = int(item.get("count", 0))
+        refund_rows.append([idx, item.get("key", "未标注"), _n(count), _pct(_safe_ratio(count, refund_total))])
+    if refund_rows:
+        blocks.append("**退费诉求分布**\n")
+        blocks.append(_table(["排名", "退费诉求", "提及量", "占比"], refund_rows))
+
+    # Refund-tertiary association
+    blocks.append(_chart_note("退费诉求与三级问题关联表格"))
+    tert_rows = []
+    for rt in refund_tertiary_data[:3]:
+        rt_key = str(rt.get("key", "未标注"))
+        rt_count = int(rt.get("count", 0))
+        tert_items = [t for t in rt.get("top_tertiary", []) if t.get("count", 0) > 0]
+        if not tert_items:
+            tert_rows.append([rt_key, _n(rt_count), "无", "0", "0.0%"])
+            continue
+        for tert in tert_items[:3]:
+            tert_count = int(tert.get("count", 0))
+            tert_rows.append([
+                rt_key,
+                _n(rt_count),
+                tert.get("key", "未标注"),
+                _n(tert_count),
+                _pct(_safe_ratio(tert_count, rt_count)),
+            ])
+    if tert_rows:
+        blocks.append("**退费诉求与三级问题关联**\n")
+        blocks.append(_table(["退费诉求", "服务数据量", "关联三级问题", "提及量", "退费组内占比"], tert_rows))
+
+    # Escalation risk
+    if escalation_data:
+        blocks.append(_chart_note("升级投诉风险分布图表"))
+        esc_total = _sum_counts(escalation_data)
+        esc_rows = []
+        for idx, item in enumerate([e for e in escalation_data if e.get("count", 0) > 0][:3], start=1):
+            count = int(item.get("count", 0))
+            esc_rows.append([idx, item.get("key", "未标注"), _n(count), _pct(_safe_ratio(count, esc_total))])
+        if esc_rows:
+            blocks.append("**升级投诉风险分布**\n")
+            blocks.append(_table(["排名", "升级投诉倾向", "提及量", "占比"], esc_rows))
+
+    return "\n\n".join(blocks)
+
+
+def _executive_summary_md(exec_text: str) -> str:
+    """Render the executive summary block in markdown."""
+    if not exec_text or not exec_text.strip():
+        return ""
+    text = exec_text.strip()
+    import re
+    # Split on section headers: "一、...", "二、...", etc. (may or may not be bold)
+    sections = re.split(r'\n(?=\*?\*?\s*[一二三四]、)', text)
+    kept = []
+    for sec in sections:
+        stripped = sec.lstrip('*')
+        if stripped.startswith('一、') or stripped.startswith('三、'):
+            continue
+        kept.append(sec.replace('痛点', '问题'))
+    text = '\n'.join(kept)
+    # Renumber: remaining 二→一, 四→二
+    text = re.sub(r'^(\*?\*?\s*)二、', r'\1一、', text, flags=re.MULTILINE)
+    text = re.sub(r'^(\*?\*?\s*)四、', r'\1二、', text, flags=re.MULTILINE)
+    text = text.replace('三大问题', '三大问题')
+    return f"### 核心摘要与发现\n\n> {text}"
+
+
+def _primary_detail_breakdown_md(result: dict, narratives: dict, total: int) -> str:
+    """Per-primary-label breakdown: each primary has its top tertiary labels
+    as '诉求类型', with share of primary count and LLM summary."""
+    primary_labels = [
+        item for item in (result.get("primary", []) or [])
+        if str(item.get("key", "")).strip() in CANONICAL_PRIMARY_TERTIARY
+    ]
+    if not primary_labels:
+        return ""
+    primary_labels = [p for p in primary_labels if p.get("count", 0) > 0][:6]
+    if not primary_labels:
+        return ""
+
+    cause_detail = narratives.get("tertiary_cause_detail") or []
+    cause_by_label = {
+        canonical_tertiary_label(item.get("label", "")): item
+        for item in cause_detail
+        if item.get("label")
+    }
+    primary_summaries = narratives.get("primary_summaries", [])
+
+    cn_numbers = ["一", "二", "三", "四", "五", "六"]
+    blocks = []
+
+    for idx, primary_item in enumerate(primary_labels[:6]):
+        pkey = primary_item.get("key", "")
+        pcount = int(primary_item.get("count", 0))
+        pshare = _pct(_safe_ratio(pcount, total))
+
+        heading = f"### {cn_numbers[idx]}、{pkey}（共{_n(pcount)}条，占比{pshare}）"
+        parts = [heading]
+
+        llm_summary = ""
+        for ps in primary_summaries:
+            if ps.get("label") == pkey:
+                llm_summary = ps.get("summary", "")
+                break
+        if not llm_summary:
+            raise RuntimeError(f"一级标签小结缺失：{pkey}")
+
+        primary_tertiary = primary_top_tertiary_items(result, pkey, pcount, limit=5)
+        if not primary_tertiary:
+            raise RuntimeError(f"一级标签无法按权威 taxonomy 找到三级分布：{pkey}")
+
+        if primary_tertiary:
+            # Appeal distribution table: rows = tertiary labels under this primary
+            parts.append(f"\n**用户核心诉求分布**\n")
+            dist_rows = []
+            for ti in primary_tertiary[:5]:
+                tik = ti.get("key", "")
+                tic = int(ti.get("count", 0))
+                if tic <= 0:
+                    continue
+                tipct = str(ti.get("share") or (f"{(tic / pcount * 100):.1f}%" if pcount > 0 else "0.0%"))
+                ci = cause_by_label.get(canonical_tertiary_label(tik), {})
+                summ = ci.get("user_voice_natural", "") or ci.get("content_summary", "") or ci.get("root_cause", "") or ""
+                if not summ:
+                    raise RuntimeError(f"典型用户原话缺失：{tik}")
+                dist_rows.append([tik, tipct, summ])
+            if dist_rows:
+                parts.append(_table(["诉求类型", "频次占比", "典型用户原话"], dist_rows))
+
+            # Deep analysis per-top tertiary
+            for rank, t in enumerate(primary_tertiary[:3], 1):
+                tkey = t.get("key", "")
+                tcount = int(t.get("count", 0))
+                tshare = _pct(_safe_ratio(tcount, pcount)) if pcount > 0 else "0%"
+                parts.append(f"\n### {tkey}（共{_n(tcount)}条，占该一级问题{tshare}）")
+                cause = cause_by_label.get(canonical_tertiary_label(tkey), {})
+                content_s = cause.get("content_summary", "")
+                cs_s = cause.get("cs_reply_summary", "")
+                root = cause.get("root_cause", "")
+                sp = []
+                if content_s and len(content_s.strip()) > 10:
+                    sp.append(f"服务内容：{content_s.strip().rstrip('。')}。")
+                if cs_s and len(cs_s.strip()) > 10:
+                    sp.append(f"客服应对：{cs_s.strip().rstrip('。')}。")
+                if root:
+                    sp.append(f"根因判断：{root.strip().rstrip('。')}。")
+                if sp:
+                    parts.append(f"\n**分析小结**：{' '.join(sp)}")
+                else:
+                    raise RuntimeError(f"三级标签分析小结缺失：{tkey}")
+
+        parts.append(f"\n{llm_summary}")
+        blocks.append("\n".join(parts))
+
+    # Natural-language summary across all primaries (LLM generated two paragraphs)
+    overall_eval = narratives.get("primary_overall_evaluation") or []
+    blocks.append(_build_natural_summary_md(overall_eval, primary_labels))
+
+    return "\n\n---\n\n".join(blocks) if blocks else ""
+
+
+def _build_natural_summary_md(overall_eval: list[str], primary_labels: list[dict]) -> str:
+    """Build a natural-language summary across primary labels."""
+    parts = ["### 一级标签综合评价\n"]
+    if not isinstance(overall_eval, list) or len(overall_eval) < 2:
+        raise RuntimeError("一级标签综合评价缺失，报告生成失败。")
+    parts.append(str(overall_eval[0]).strip())
+    parts.append(str(overall_eval[1]).strip())
+    return "\n\n".join(parts)
+
+
+def _primary_summaries_md(primary_summaries: list) -> str:
+    """Render primary-level summary blocks after rank table."""
+    if not primary_summaries:
+        return ""
+    blocks = []
+    for item in primary_summaries:
+        label = item.get("label", "未标注")
+        count = item.get("count", 0)
+        share = item.get("share", "0%")
+        summary = item.get("summary", "")
+        if summary:
+            blocks.append(f"**「{label}」小结**（{count}件，占比{share}）\n>{summary}")
+    if blocks:
+        return "\n\n".join(blocks)
+    return ""
+
+
+def _four_ops_md(four_ops: list, four_products: list, mapping_table: list, narratives: dict) -> str:
+    """Render four operations / four product levels analysis with mapping table."""
+    parts = ["#### 四个运营维度分析\n"]
+    parts.append('<small>原图：四个运营维度分布图；Markdown 展示：数据表。</small>\n')
+    if four_ops:
+        rows = []
+        for item in four_ops[:5]:
+            rows.append([item.get("key", ""), _n(item.get("count", 0))])
+        parts.append("**四个运营维度分布**\n")
+        parts.append(_table(["运营维度", "问题量"], rows))
+    if four_products:
+        rows = []
+        for item in four_products[:5]:
+            rows.append([item.get("key", ""), _n(item.get("count", 0))])
+        parts.append("\n**四个产品层次分布**\n")
+        parts.append(_table(["产品层次", "问题量"], rows))
+    # Mapping table of tertiary labels to four dimensions
+    if mapping_table:
+        parts.append("\n**三级问题标签 → 四个层次/四个运营 映射表**\n")
+        rows = []
+        for m in mapping_table:
+            rows.append([
+                m.get("tertiary_label", ""),
+                _n(m.get("count", 0)),
+                m.get("operation", ""),
+                m.get("product_level", ""),
+            ])
+        parts.append(_table(["三级标签", "问题量", "归属运营维度", "归属产品层次"], rows))
+    return "\n".join(parts)
+
+
+def _typical_case_deep_dive_md(deep_data: list[dict]) -> str:
+    """Render typical case deep dives."""
+    if not deep_data:
+        return ""
+    parts = ["#### 典型问题深度分析\n"]
+    parts.append('<small>原图：典型问题案例分析卡片；Markdown 展示：文本摘要。</small>\n')
+    for item in deep_data[:3]:
+        label = item.get("label", "")
+        count = _n(item.get("count", 0))
+        analysis = _text(item.get("analysis", ""))
+        if analysis:
+            parts.append(f"**「{label}」（共{count}件）**\n\n{analysis}\n")
+    return "\n".join(parts)
+
+
+def _methodology_md(methodology_text: str) -> str:
+    """Render methodology disclaimer (subtle one-liner)."""
+    if not methodology_text or not methodology_text.strip():
+        return ""
+    # If it's a short one-liner, render as subtle footnote
+    if len(methodology_text.strip()) < 80:
+        return f"\n---\n*{methodology_text.strip()}*"
+    return f"#### 分析方法与局限性\n\n{methodology_text.strip()}"
+
+
 def render_markdown_report(result: dict, output_path: Path) -> Path:
-    query = result.get("query") or {}
-    section_focus = query.get("section_focus") or "full"
     trend_view = _build_trend_view(result.get("daily", []), result.get("filters", {}), result.get("anomalies", []))
-    narratives: dict[str, list[str]] = result.get("narratives") or {}
-    labeled_total = int(result.get("total", 0) or 0)
-    total = int(result.get("total_with_unlabeled", labeled_total) or 0)
-    period_start = result.get("period", {}).get("min") or result.get("filters", {}).get("start_date") or "未限定"
-    period_end = result.get("period", {}).get("max") or result.get("filters", {}).get("end_date") or "未限定"
-    if len(period_start) > 10:
-        period_start = period_start[:10]
-    if len(period_end) > 10:
-        period_end = period_end[:10]
-    primary_total = _sum_counts(result.get("primary", []))
-    secondary_total = _sum_counts(result.get("secondary", []))
-    tertiary_total = _sum_counts(result.get("tertiary", []))
+    context = build_report_context(result, trend_view)
+    section_focus = context.section_focus
+    narratives: dict[str, list[str]] = context.narratives
+    total = context.total
+    period_start = context.period_start
+    period_end = context.period_end
     trend_window_note = (
         trend_view.get("note") or "当前按完整查询周期展示每日趋势。"
         if section_focus in {"trend", "full"}
@@ -394,12 +730,11 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
     )
 
     sections: list[str] = [
-        "# 视频业务产品体验问题诊断报告",
-        "## 一、整体情况",
+        "# 一、整体情况",
         "\n".join(
             [
                 f"> 数据周期：{period_start} 至 {period_end}  ",
-                f"> 总工单量：{_n(total)} 件  ",
+                f"> 总服务数据量：{_n(total)} 件  ",
             ]
         ),
     ]
@@ -408,6 +743,8 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
         sections.extend(
             [
                 "---",
+                _executive_summary_md(narratives.get("executive_summary", "")),
+                "---",
                 "### 1.1 问题分布概览",
                 "#### 分析结论",
                 _paragraphs(narratives.get("distribution_conclusion"), _distribution_insights(result)),
@@ -415,19 +752,8 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 "#### 一级问题概览",
                 _chart_note("一级标签类型分布饼状图"),
                 _paragraphs(narratives.get("primary_overview")),
-                _rank_table(result.get("primary", []), primary_total, "一级标签"),
-                "#### 二级问题概览",
-                _chart_note("二级标签类型分布饼状图"),
-                _paragraphs(narratives.get("secondary_overview")),
-                _rank_table(result.get("secondary", []), secondary_total, "二级标签"),
-                "#### 三级问题概览",
-                _chart_note("三级标签类型分布饼状图及 TOP5 三级问题柱状图", "数据表"),
-                _paragraphs(narratives.get("tertiary_overview")),
-                _rank_table(result.get("tertiary", []), tertiary_total, "三级标签"),
-                "#### 三级问题原因线索、样例原声与典型案例",
-                _chart_note("原因线索卡片与样例原声卡片", "合并数据表"),
-                _paragraphs(narratives.get("cause_summary"), narratives.get("voice_summary")),
-                _merged_cause_voice_markdown(result, narratives),
+                _rank_table(result.get("primary", []), total, "一级标签"),
+                _primary_detail_breakdown_md(result, narratives, total),
             ]
         )
 
@@ -446,6 +772,8 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 ),
                 _paragraphs(trend_summary),
                 f"**图表分析总结**：{trend_window_note}",
+                "#### 每日明细数据",
+                _daily_detail_table(trend_view),
                 "#### 赛事日样例原声",
                 _chart_note("赛事日样例原声卡片", "文本摘要列表"),
                 _trend_voice_markdown(trend_view, narratives),
@@ -453,9 +781,10 @@ def render_markdown_report(result: dict, output_path: Path) -> Path:
                 _chart_note("异动节点卡片", "异动节点表格"),
                 _paragraphs(narratives.get("anomaly_summary")),
                 _anomaly_table(trend_view.get("anomalies", [])),
+                
             ]
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
+    output_path.write_text(_sanitize_report_terms("\n\n".join(sections) + "\n"), encoding="utf-8")
     return output_path

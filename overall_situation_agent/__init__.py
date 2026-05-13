@@ -1,3 +1,3 @@
-"""Agent for the report section: 一、整体情况."""
+"""整体情况报告生成工具 — 简化版。单次运行，产出 HTML + Markdown 报告。"""
 
 __version__ = "0.1.0"
