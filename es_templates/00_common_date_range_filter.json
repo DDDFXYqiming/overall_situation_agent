@@ -1,0 +1,20 @@
+{
+  "question": "2026年3月整个月的服务数据范围是什么？",
+  "description": "所有报告 ES 查询默认叠加该服务时间范围。默认示例周期为 2026-03-01 至 2026-03-31，ES 上界使用 {{end_date_exclusive}} 的左闭右开区间。",
+  "dsl": {
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

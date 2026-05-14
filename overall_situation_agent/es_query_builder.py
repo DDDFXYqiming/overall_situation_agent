@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import calendar
 import json
 import logging
 import re
@@ -9,6 +10,10 @@ from typing import Any
 from .es_client import ElasticsearchError, SimpleElasticsearch
 from .evidence import EVIDENCE_SOURCE_FIELDS, MAX_EVIDENCE_PAYLOAD_CHARS, build_tertiary_evidence_package
 from .llm_client import OpenAICompatibleClient, parse_json_object
+from .mapping_loader import allowed_search_fields
+from .taxonomy import CANONICAL_PRIMARY_TERTIARY, canonical_tertiary_label, tertiary_label_variants
+from .template_executor import TemplateExecutor
+from .template_registry import TemplateError, default_date_params
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +225,10 @@ KNOWN_MEMBER_CLUSTERS = (
 )
 KNOWN_INSIGHT_DIMENSIONS = ("用得亏", "用得难", "用得烦", "不适用")
 KNOWN_TIME_PERIODS = ("凌晨", "上午", "中午", "下午", "晚上", "夜间")
+KNOWN_PRIMARY_LABELS = tuple(CANONICAL_PRIMARY_TERTIARY.keys())
+KNOWN_TERTIARY_LABELS = tuple(
+    dict.fromkeys(label for labels in CANONICAL_PRIMARY_TERTIARY.values() for label in labels)
+)
 
 
 SYSTEM_PROMPT = """
@@ -319,6 +328,8 @@ class ESQueryBuilder:
         self.index_name = index_name
         self.llm = llm
         self.max_size = max_size
+        self.template_executor = TemplateExecutor()
+        self.allowed_fields = allowed_search_fields() | ALLOWED_FIELDS
 
     def generate_intent(
         self,
@@ -339,6 +350,10 @@ class ESQueryBuilder:
             raise LLMUnavailableError("当前无法使用智能数据查询，请配置 LLM_API_KEY/DEEPSEEK_API_KEY 后重试。")
 
         compact_history = (history or [])[-6:]
+        template_intent = self._llm_template_intent(question, compact_history)
+        if template_intent:
+            return template_intent
+
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             *compact_history,
@@ -390,6 +405,10 @@ class ESQueryBuilder:
         if self._is_tertiary_top_cause_question(q):
             return self._finalize_intent(self._tertiary_top_cause_intent(q))
 
+        template_intent = self._template_intent(q)
+        if template_intent:
+            return template_intent
+
         if any(term in q for term in TREND_TERMS):
             return self._finalize_intent(self._trend_intent(q, last_query_dsl=last_query_dsl))
 
@@ -402,6 +421,173 @@ class ESQueryBuilder:
                 return self._finalize_intent(self._distribution_intent(q, spec))
 
         return None
+
+    def _template_intent(self, question: str) -> dict[str, Any] | None:
+        params = self._template_params_from_question(question)
+        template_id = self._select_template_id(question, params)
+        if not template_id:
+            return None
+        return self._intent_from_template(template_id, params)
+
+    def _llm_template_intent(self, question: str, history: list[dict[str, str]]) -> dict[str, Any] | None:
+        templates = self.template_executor.registry.list_for_llm(limit=32)
+        if not templates:
+            return None
+        prompt = {
+            "user_question": question,
+            "available_templates": templates,
+            "output_schema": {
+                "template_id": "one available template_id or null",
+                "params": "object with any extracted start_date/end_date/primary_label/tertiary_label/sample_size",
+                "explanation": "short Chinese explanation",
+                "expected_fields": ["field names"],
+            },
+        }
+        response = self.llm.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是 ES 查询模板选择器。只能从 available_templates 选择 template_id，"
+                        "不要直接生成 Elasticsearch DSL。无法匹配时输出 {\"template_id\": null}。"
+                    ),
+                },
+                *history,
+                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+            ],
+            temperature=0.0,
+        )
+        if response.used_fallback or not response.content.strip():
+            return None
+        parsed = parse_json_object(response.content)
+        if not parsed or not parsed.get("template_id"):
+            return None
+        params = self._template_params_from_question(question)
+        model_params = parsed.get("params")
+        if isinstance(model_params, dict):
+            params.update({str(key): value for key, value in model_params.items() if value not in (None, "")})
+        intent = self._intent_from_template(str(parsed.get("template_id")), params)
+        if not intent:
+            return None
+        if parsed.get("explanation"):
+            intent["explanation"] = str(parsed["explanation"])
+        intent["expected_fields"] = self._sanitize_expected_fields(parsed.get("expected_fields")) or intent.get("expected_fields", [])
+        return intent
+
+    def _intent_from_template(self, template_id: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            body = self.template_executor.render(template_id, params)
+            query = self.build_query({"query": body})
+            template = self.template_executor.registry.get(template_id)
+        except (TemplateError, RuntimeError, InvalidQueryError):
+            return None
+        expected_fields = self._fields_from_dsl(query)
+        return {
+            "query": query,
+            "explanation": f"使用 ES 模板 [{template_id}]：{template.description}",
+            "expected_fields": expected_fields,
+            "metadata": {
+                "intent_type": "template_query",
+                "template_id": template_id,
+                "template_params": params,
+            },
+        }
+
+    def _template_params_from_question(self, question: str) -> dict[str, Any]:
+        params = default_date_params(None, None)
+        dates = self._extract_dates(question)
+        if len(dates) >= 2:
+            params.update(default_date_params(dates[0], dates[1]))
+        elif len(dates) == 1:
+            params.update(default_date_params(dates[0], dates[0]))
+        else:
+            month_range = self._extract_month_range(question)
+            if month_range:
+                params.update(default_date_params(month_range[0], month_range[1]))
+
+        primary = self._extract_primary_label(question)
+        tertiary = self._extract_tertiary_label(question)
+        if primary:
+            params["primary_label"] = primary
+        if tertiary:
+            params["tertiary_label"] = tertiary
+        if "sample_size" not in params:
+            params["sample_size"] = 24
+        return params
+
+    def _select_template_id(self, question: str, params: dict[str, Any]) -> str | None:
+        if "未标注" in question:
+            return "01_distribution_unlabeled_analysis"
+        if any(term in question for term in ("数据周期", "时间范围", "日期范围")):
+            return "01_distribution_header_period_range"
+        if any(term in question for term in ("总服务", "总量", "服务数据量")):
+            return "01_distribution_header_total_service_count"
+        if any(term in question for term in TREND_TERMS):
+            if "异动" in question:
+                return "03_trend_anomaly_nodes"
+            if "赛事日" in question and any(term in question for term in ("原声", "样例", "样本")):
+                return "03_trend_matchday_voice_samples"
+            if "每日明细" in question or "每天" in question:
+                return "03_trend_daily_detail_table"
+            return "03_trend_daily_aggregation"
+        if params.get("primary_label") and params.get("tertiary_label") and any(term in question for term in ("占", "比例", "数量", "多少")):
+            return "02_primary_tertiary_title_count"
+        if params.get("primary_label") and "三级" in question:
+            return "02_primary_tertiary_distribution_by_primary"
+        if any(label in question for label in CANONICAL_PRIMARY_TERTIARY) and any(term in question for term in ("一级模块", "标题", "数量", "占比")):
+            return "02_primary_module_title_counts"
+        if any(term in question for term in ("核心摘要", "行动建议")):
+            return "01_distribution_executive_summary_inputs"
+        if any(marker in question for marker in ("一级", "二级", "三级", "情绪", "分布", "占比")):
+            return "01_distribution_conclusion_aggregations"
+        return None
+
+    def _extract_dates(self, question: str) -> list[str]:
+        matches = re.findall(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", question)
+        return [f"{int(year):04d}-{int(month):02d}-{int(day):02d}" for year, month, day in matches]
+
+    def _extract_month_range(self, question: str) -> tuple[str, str] | None:
+        match = re.search(r"(20\d{2})年\s*(\d{1,2})月", question)
+        if not match:
+            match = re.search(r"(20\d{2})[-/.](\d{1,2})(?![-/.]\d)", question)
+        if not match:
+            return None
+        year = int(match.group(1))
+        month = int(match.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        return f"{year:04d}-{month:02d}-01", f"{year:04d}-{month:02d}-{last_day:02d}"
+
+    def _extract_primary_label(self, question: str) -> str | None:
+        for label in KNOWN_PRIMARY_LABELS:
+            if self._contains_label_text(question, label):
+                return label
+        return None
+
+    def _extract_tertiary_label(self, question: str) -> str | None:
+        for label in KNOWN_TERTIARY_LABELS:
+            if self._contains_any_label_text(question, tertiary_label_variants(label)):
+                return label
+        return None
+
+    def _fields_from_dsl(self, node: Any) -> list[str]:
+        fields: list[str] = []
+
+        def visit(value: Any) -> None:
+            if isinstance(value, dict):
+                if isinstance(value.get("field"), str) and self._is_allowed_field(value["field"]):
+                    fields.append(value["field"])
+                for key, item in value.items():
+                    if key in FIELD_CLAUSES and isinstance(item, dict) and "field" not in item:
+                        for field in item:
+                            if self._is_allowed_field(str(field)):
+                                fields.append(str(field))
+                    visit(item)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        visit(node)
+        return list(dict.fromkeys(fields))
 
     def build_query(self, intent: dict[str, Any]) -> dict[str, Any]:
         body = copy.deepcopy(intent.get("query") if "query" in intent else intent)
@@ -569,7 +755,7 @@ class ESQueryBuilder:
         return intent
 
     def _distribution_intent(self, question: str, spec: dict[str, Any]) -> dict[str, Any]:
-        filters = self._question_filters(question)
+        filters = self._question_filters(question, exclude_fields={spec["field"]})
         body = {
             "size": 0,
             "query": self._filter_query(filters),
@@ -723,15 +909,26 @@ class ESQueryBuilder:
             },
         }
 
-    def _question_filters(self, question: str) -> list[dict[str, Any]]:
+    def _question_filters(self, question: str, exclude_fields: set[str] | None = None) -> list[dict[str, Any]]:
+        exclude_fields = exclude_fields or set()
         filters: list[dict[str, Any]] = []
+        if "primary_labels" not in exclude_fields:
+            for primary_label in KNOWN_PRIMARY_LABELS:
+                if self._contains_label_text(question, primary_label):
+                    filters.append({"term": {"primary_labels": primary_label}})
+                    break
+        if "tertiary_labels" not in exclude_fields:
+            for tertiary_label in KNOWN_TERTIARY_LABELS:
+                if self._contains_any_label_text(question, tertiary_label_variants(tertiary_label)):
+                    filters.append(self._label_terms_filter("tertiary_labels", tertiary_label_variants(tertiary_label)))
+                    break
         if "投诉" in question:
             filters.append({"term": {"scene_service_type": "投诉"}})
         if "退费" in question or "退款" in question:
             filters.append({"term": {"has_refund_demand": "是"}})
         if "升级投诉" in question or "升级" in question:
             filters.append({"term": {"has_escalation": "是"}})
-        if "误订购" in question or "不知情订购" in question:
+        if "tertiary_labels" not in exclude_fields and ("误订购" in question or "不知情订购" in question):
             filters.append(
                 {
                     "bool": {
@@ -757,6 +954,40 @@ class ESQueryBuilder:
             if period in question:
                 filters.append({"term": {"time_period": period}})
         return filters
+
+    def _contains_any_label_text(self, question: str, labels: tuple[str, ...]) -> bool:
+        return any(self._contains_label_text(question, label) for label in labels if label)
+
+    def _contains_label_text(self, question: str, label: str) -> bool:
+        if label in question:
+            return True
+        compact_question = self._compact_label_text(question)
+        compact_label = self._compact_label_text(label)
+        return bool(compact_label and compact_label in compact_question)
+
+    def _compact_label_text(self, value: Any) -> str:
+        text = str(value or "")
+        return re.sub(r"[\s/、，,（）()]+", "", text)
+
+    def _label_terms_filter(self, field: str, labels: tuple[str, ...]) -> dict[str, Any]:
+        values: list[str] = []
+        for label in labels:
+            canonical = canonical_tertiary_label(label)
+            if canonical:
+                values.append(canonical)
+            if label:
+                values.append(label)
+        values = list(dict.fromkeys(values))
+        if not values:
+            return {"match_all": {}}
+        if len(values) == 1:
+            return {"term": {field: values[0]}}
+        return {
+            "bool": {
+                "should": [{"term": {field: value}} for value in values],
+                "minimum_should_match": 1,
+            }
+        }
 
     def _filter_query(self, filters: list[dict[str, Any]]) -> dict[str, Any]:
         if not filters:
@@ -940,9 +1171,9 @@ class ESQueryBuilder:
             raise InvalidQueryError(f"字段不在允许范围内：{field}")
 
     def _is_allowed_field(self, field: str) -> bool:
-        if field in ALLOWED_FIELDS:
+        if field in self.allowed_fields:
             return True
-        if field.endswith(".keyword") and field[:-8] in ALLOWED_FIELDS:
+        if field.endswith(".keyword") and field[:-8] in self.allowed_fields:
             return True
         return False
 

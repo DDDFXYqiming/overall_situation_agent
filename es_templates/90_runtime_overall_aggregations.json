@@ -1,0 +1,570 @@
+{
+  "question": "运行时：生成整体情况报告所需的完整已标注聚合。",
+  "description": "报告生成运行时模板。保持与重构前 run_overall_aggregations 主聚合 DSL 一致。",
+  "dsl": {
+    "size": 0,
+    "track_total_hits": true,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          },
+          {
+            "exists": {
+              "field": "primary_labels"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "period_min": {
+        "min": {
+          "field": "service_time"
+        }
+      },
+      "period_max": {
+        "max": {
+          "field": "service_time"
+        }
+      },
+      "primary": {
+        "terms": {
+          "field": "primary_labels",
+          "size": 20
+        }
+      },
+      "secondary": {
+        "terms": {
+          "field": "secondary_labels",
+          "size": 30
+        }
+      },
+      "tertiary": {
+        "terms": {
+          "field": "tertiary_labels",
+          "size": 30
+        }
+      },
+      "emotion": {
+        "terms": {
+          "field": "scene_emotion",
+          "size": 20
+        }
+      },
+      "service_type": {
+        "terms": {
+          "field": "scene_service_type",
+          "size": 10
+        }
+      },
+      "province": {
+        "terms": {
+          "field": "province_name",
+          "size": 20
+        }
+      },
+      "event": {
+        "terms": {
+          "field": "scene_event",
+          "size": 20
+        }
+      },
+      "source_file": {
+        "terms": {
+          "field": "source_file",
+          "size": 5
+        }
+      },
+      "refund": {
+        "terms": {
+          "field": "has_refund_demand",
+          "size": 5
+        }
+      },
+      "escalation": {
+        "terms": {
+          "field": "has_escalation",
+          "size": 5
+        }
+      },
+      "province_tertiary": {
+        "terms": {
+          "field": "province_name",
+          "size": 10
+        },
+        "aggs": {
+          "top_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 5
+            }
+          }
+        }
+      },
+      "province_refund": {
+        "terms": {
+          "field": "province_name",
+          "size": 10
+        },
+        "aggs": {
+          "refund_distribution": {
+            "terms": {
+              "field": "has_refund_demand",
+              "size": 3
+            }
+          }
+        }
+      },
+      "refund_tertiary": {
+        "terms": {
+          "field": "has_refund_demand",
+          "size": 3
+        },
+        "aggs": {
+          "top_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 5
+            }
+          }
+        }
+      },
+      "label_group": {
+        "terms": {
+          "field": "label_group",
+          "size": 20
+        }
+      },
+      "insight_dimension": {
+        "terms": {
+          "field": "insight_dimension",
+          "size": 10
+        }
+      },
+      "customer_key_appeal": {
+        "terms": {
+          "field": "customer_key_appeal.keyword",
+          "size": 10
+        }
+      },
+      "cs_key_action": {
+        "terms": {
+          "field": "cs_key_action.keyword",
+          "size": 10,
+          "exclude": [
+            "无",
+            "不适用",
+            "{}"
+          ]
+        }
+      },
+      "operation_action": {
+        "terms": {
+          "field": "operation_action",
+          "size": 10
+        }
+      },
+      "four_ops": {
+        "terms": {
+          "field": "four_operation",
+          "size": 10
+        }
+      },
+      "four_product": {
+        "terms": {
+          "field": "four_product_level",
+          "size": 10
+        }
+      },
+      "biz_member_cluster": {
+        "terms": {
+          "field": "biz_member_cluster",
+          "size": 12
+        }
+      },
+      "marketing_activity_page": {
+        "terms": {
+          "field": "marketing_activity_page",
+          "size": 10,
+          "exclude": [
+            "无",
+            "不适用",
+            "{}",
+            "[]",
+            "未知"
+          ]
+        }
+      },
+      "marketing_activity_match_status": {
+        "terms": {
+          "field": "marketing_activity_match_status",
+          "size": 8,
+          "exclude": [
+            "无",
+            "否",
+            "不适用",
+            "{}",
+            "[]",
+            "未知"
+          ]
+        }
+      },
+      "marketing_activity_match_keywords": {
+        "terms": {
+          "field": "marketing_activity_match_keywords",
+          "size": 12,
+          "exclude": [
+            "无",
+            "不适用",
+            "{}",
+            "[]",
+            "未知"
+          ]
+        }
+      },
+      "gender": {
+        "terms": {
+          "field": "gender",
+          "size": 5,
+          "exclude": [
+            "未知",
+            "无",
+            "不适用"
+          ]
+        }
+      },
+      "age_ranges": {
+        "range": {
+          "field": "age",
+          "ranges": [
+            {
+              "key": "18岁以下",
+              "to": 18
+            },
+            {
+              "key": "18-25",
+              "from": 18,
+              "to": 26
+            },
+            {
+              "key": "26-35",
+              "from": 26,
+              "to": 36
+            },
+            {
+              "key": "36-45",
+              "from": 36,
+              "to": 46
+            },
+            {
+              "key": "46-60",
+              "from": 46,
+              "to": 61
+            },
+            {
+              "key": "60岁以上",
+              "from": 61
+            }
+          ]
+        }
+      },
+      "time_period": {
+        "terms": {
+          "field": "time_period",
+          "size": 8
+        }
+      },
+      "match_label": {
+        "terms": {
+          "field": "match_label",
+          "size": 10
+        }
+      },
+      "avg_duration_minutes": {
+        "avg": {
+          "field": "duration_minutes"
+        }
+      },
+      "primary_secondary": {
+        "terms": {
+          "field": "primary_labels",
+          "size": 20
+        },
+        "aggs": {
+          "secondary": {
+            "terms": {
+              "field": "secondary_labels",
+              "size": 10
+            }
+          }
+        }
+      },
+      "primary_secondary_tertiary": {
+        "terms": {
+          "field": "primary_labels",
+          "size": 20
+        },
+        "aggs": {
+          "secondary": {
+            "terms": {
+              "field": "secondary_labels",
+              "size": 30
+            },
+            "aggs": {
+              "tertiary": {
+                "terms": {
+                  "field": "tertiary_labels",
+                  "size": 30
+                }
+              }
+            }
+          }
+        }
+      },
+      "daily": {
+        "date_histogram": {
+          "field": "service_time",
+          "calendar_interval": "day",
+          "format": "yyyy-MM-dd",
+          "min_doc_count": 0
+        },
+        "aggs": {
+          "negative": {
+            "filter": {
+              "terms": {
+                "scene_emotion": [
+                  "愤怒",
+                  "失望",
+                  "焦虑",
+                  "不满",
+                  "烦躁"
+                ]
+              }
+            }
+          },
+          "top_primary": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 3
+            }
+          },
+          "top_secondary": {
+            "terms": {
+              "field": "secondary_labels",
+              "size": 3
+            }
+          },
+          "top_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 3
+            }
+          },
+          "top_service_type": {
+            "terms": {
+              "field": "scene_service_type",
+              "size": 3
+            }
+          },
+          "top_member_cluster": {
+            "terms": {
+              "field": "biz_member_cluster",
+              "size": 3
+            }
+          },
+          "top_events": {
+            "terms": {
+              "field": "scene_event",
+              "size": 3
+            }
+          },
+          "top_operations": {
+            "terms": {
+              "field": "operation_action",
+              "size": 3
+            }
+          },
+          "top_matches": {
+            "terms": {
+              "field": "match_label",
+              "size": 3
+            }
+          },
+          "sample_hits": {
+            "top_hits": {
+              "size": 3,
+              "_source": [
+                "service_time",
+                "content",
+                "customer_key_appeal",
+                "scene_emotion",
+                "primary_labels",
+                "secondary_labels",
+                "tertiary_labels",
+                "operation_action",
+                "biz_member_cluster",
+                "match_label"
+              ]
+            }
+          }
+        }
+      },
+      "top_tertiary_examples": {
+        "terms": {
+          "field": "tertiary_labels",
+          "size": 5
+        },
+        "aggs": {
+          "top_appeals": {
+            "terms": {
+              "field": "customer_key_appeal.keyword",
+              "size": 3
+            }
+          },
+          "sample": {
+            "top_hits": {
+              "size": 2,
+              "_source": [
+                "gd_identity",
+                "province_name",
+                "service_time",
+                "content",
+                "customer_key_appeal",
+                "scene_emotion",
+                "operation_action",
+                "biz_member_cluster",
+                "latent_need"
+              ]
+            }
+          }
+        }
+      },
+      "operation_need_examples": {
+        "terms": {
+          "field": "operation_action",
+          "size": 8
+        },
+        "aggs": {
+          "top_latent_needs": {
+            "terms": {
+              "field": "latent_need.keyword",
+              "size": 5,
+              "exclude": [
+                "无",
+                "不适用",
+                "{}"
+              ]
+            }
+          },
+          "top_member_clusters": {
+            "terms": {
+              "field": "biz_member_cluster",
+              "size": 5
+            }
+          },
+          "top_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 5
+            }
+          },
+          "sample": {
+            "top_hits": {
+              "size": 2,
+              "_source": [
+                "gd_identity",
+                "service_time",
+                "content",
+                "customer_key_appeal",
+                "operation_action",
+                "latent_need",
+                "latent_need_reason",
+                "biz_member_cluster",
+                "tertiary_labels"
+              ]
+            }
+          }
+        }
+      },
+      "member_cluster_examples": {
+        "terms": {
+          "field": "biz_member_cluster",
+          "size": 10
+        },
+        "aggs": {
+          "top_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 5
+            }
+          },
+          "top_appeals": {
+            "terms": {
+              "field": "customer_key_appeal.keyword",
+              "size": 5
+            }
+          },
+          "sample": {
+            "top_hits": {
+              "size": 2,
+              "_source": [
+                "gd_identity",
+                "service_time",
+                "content",
+                "customer_key_appeal",
+                "biz_member_cluster",
+                "tertiary_labels"
+              ]
+            }
+          }
+        }
+      },
+      "latent_need_examples": {
+        "terms": {
+          "field": "latent_need.keyword",
+          "size": 10,
+          "exclude": [
+            "无",
+            "不适用",
+            "{}"
+          ]
+        },
+        "aggs": {
+          "top_operations": {
+            "terms": {
+              "field": "operation_action",
+              "size": 5
+            }
+          },
+          "top_members": {
+            "terms": {
+              "field": "biz_member_cluster",
+              "size": 5
+            }
+          },
+          "sample": {
+            "top_hits": {
+              "size": 2,
+              "_source": [
+                "gd_identity",
+                "service_time",
+                "content",
+                "latent_need",
+                "latent_need_reason",
+                "operation_action",
+                "biz_member_cluster"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

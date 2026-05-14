@@ -1,0 +1,22 @@
+{
+  "question": "运行时：获取三级原因分析 TopN 标签和总提及量。",
+  "description": "交互式原因分析运行时模板。base query 由调用方传入。",
+  "dsl": {
+    "size": 0,
+    "track_total_hits": true,
+    "query": "{{query}}",
+    "aggs": {
+      "top_tertiary": {
+        "terms": {
+          "field": "tertiary_labels",
+          "size": "{{top_n}}"
+        }
+      },
+      "tertiary_total": {
+        "value_count": {
+          "field": "tertiary_labels"
+        }
+      }
+    }
+  }
+}

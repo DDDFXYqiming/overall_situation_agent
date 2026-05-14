@@ -1,0 +1,83 @@
+{
+  "question": "运行时：按三级原因分析查询抽取样本。",
+  "description": "交互式原因分析运行时模板。query 已包含基础条件和三级标签过滤。",
+  "dsl": {
+    "size": "{{sample_size}}",
+    "track_total_hits": true,
+    "query": "{{query}}",
+    "_source": [
+      "service_time",
+      "tertiary_labels",
+      "scene_service_type",
+      "scene_emotion",
+      "content",
+      "cs_reply",
+      "customer_key_appeal",
+      "customer_keywords",
+      "cs_key_action",
+      "cs_keywords"
+    ],
+    "aggs": {
+      "top_customer_appeals": {
+        "terms": {
+          "field": "customer_key_appeal.keyword",
+          "size": 8,
+          "exclude": [
+            "",
+            "无",
+            "无明确",
+            "未知",
+            "不适用",
+            "{}",
+            "[]"
+          ]
+        }
+      },
+      "top_customer_keywords": {
+        "terms": {
+          "field": "customer_keywords",
+          "size": 10,
+          "exclude": [
+            "",
+            "无",
+            "无明确",
+            "未知",
+            "不适用",
+            "{}",
+            "[]"
+          ]
+        }
+      },
+      "top_cs_actions": {
+        "terms": {
+          "field": "cs_key_action.keyword",
+          "size": 8,
+          "exclude": [
+            "",
+            "无",
+            "无明确",
+            "未知",
+            "不适用",
+            "{}",
+            "[]"
+          ]
+        }
+      },
+      "top_cs_keywords": {
+        "terms": {
+          "field": "cs_keywords",
+          "size": 10,
+          "exclude": [
+            "",
+            "无",
+            "无明确",
+            "未知",
+            "不适用",
+            "{}",
+            "[]"
+          ]
+        }
+      }
+    }
+  }
+}

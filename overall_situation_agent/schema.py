@@ -89,26 +89,6 @@ NEGATIVE_EMOTIONS = ["愤怒", "失望", "焦虑", "不满", "烦躁"]
 
 
 def index_mapping() -> dict:
-    properties: dict[str, dict] = {}
-    for field in KEYWORD_FIELDS:
-        properties[field] = {"type": "keyword"}
-    for field in TEXT_FIELDS:
-        properties[field] = {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}}
-    for field in DATE_FIELDS:
-        properties[field] = {"type": "date", "format": "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||strict_date_optional_time"}
-    for field, number_type in NUMERIC_FIELDS.items():
-        properties[field] = {"type": number_type}
+    from .mapping_loader import load_index_mapping
 
-    properties["source_file"] = {"type": "keyword"}
-    properties["imported_at"] = {"type": "date"}
-
-    return {
-        "settings": {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-        },
-        "mappings": {
-            "dynamic": True,
-            "properties": properties,
-        },
-    }
+    return load_index_mapping()

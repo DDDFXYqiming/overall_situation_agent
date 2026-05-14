@@ -1,0 +1,36 @@
+{
+  "question": "2026年3月哪些日期是赛事日，对应当天的问题量分别是多少？",
+  "description": "只按天返回已标注服务数据量，用于与赛程表日期做等值匹配；赛事摘要文字由赛程表轮次、时间、主队、客队拼接，不是 ES 计算。",
+  "dsl": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          },
+          {
+            "exists": {
+              "field": "primary_labels"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "daily": {
+        "date_histogram": {
+          "field": "service_time",
+          "calendar_interval": "day",
+          "format": "yyyy-MM-dd",
+          "min_doc_count": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "question": "在一级标签“业务体验”下面，各三级标签的频次占比分别是多少？",
+  "description": "在指定一级标签 {{primary_label}} 内统计三级标签分布，生成诉求类型和频次占比；频次占比以该一级标签总量为分母。",
+  "dsl": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          },
+          {
+            "exists": {
+              "field": "primary_labels"
+            }
+          },
+          {
+            "term": {
+              "primary_labels": "{{primary_label}}"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "tertiary_by_primary": {
+        "terms": {
+          "field": "tertiary_labels",
+          "size": 20
+        }
+      }
+    }
+  }
+}

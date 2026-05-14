@@ -5,6 +5,7 @@ from typing import Any
 
 from .es_client import SimpleElasticsearch
 from .schema import NEGATIVE_EMOTIONS
+from .template_executor import TemplateExecutor
 
 
 def _date_filter(start_date: str | None, end_date: str | None) -> list[dict]:
@@ -65,13 +66,13 @@ def run_overall_aggregations(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    total_response = es.search(
-        index=index_name,
-        body={
-            "size": 0,
-            "track_total_hits": True,
-            "query": _base_query(start_date, end_date),
-        },
+    executor = TemplateExecutor()
+    total_response = executor.search_with_dates(
+        es,
+        index_name,
+        "90_runtime_total_with_unlabeled",
+        start_date=start_date,
+        end_date=end_date,
     )
     total_with_unlabeled = (
         total_response.body["hits"]["total"]["value"]
@@ -79,203 +80,13 @@ def run_overall_aggregations(
         else total_response.body["hits"]["total"]
     )
 
-    query = _base_query(start_date, end_date, exclude_unlabeled=True)
-    body = {
-        "size": 0,
-        "track_total_hits": True,
-        "query": query,
-        "aggs": {
-            "period_min": {"min": {"field": "service_time"}},
-            "period_max": {"max": {"field": "service_time"}},
-            "primary": _terms("primary_labels", 20),
-            "secondary": _terms("secondary_labels", 30),
-            "tertiary": _terms("tertiary_labels", 30),
-            "emotion": _terms("scene_emotion", 20),
-            "service_type": _terms("scene_service_type", 10),
-            "province": _terms("province_name", 20),
-            "event": _terms("scene_event", 20),
-            "source_file": _terms("source_file", 5),
-            "refund": _terms("has_refund_demand", 5),
-            "escalation": _terms("has_escalation", 5),
-            "province_tertiary": {
-                "terms": {"field": "province_name", "size": 10},
-                "aggs": {
-                    "top_tertiary": _terms("tertiary_labels", 5),
-                }
-            },
-            "province_refund": {
-                "terms": {"field": "province_name", "size": 10},
-                "aggs": {
-                    "refund_distribution": _terms("has_refund_demand", 3),
-                }
-            },
-            "refund_tertiary": {
-                "terms": {"field": "has_refund_demand", "size": 3},
-                "aggs": {
-                    "top_tertiary": _terms("tertiary_labels", 5),
-                }
-            },
-            "label_group": _terms("label_group", 20),
-            "insight_dimension": _terms("insight_dimension", 10),
-            "customer_key_appeal": _terms("customer_key_appeal.keyword", 10),
-            "cs_key_action": _text_terms("cs_key_action.keyword", 10),
-            "operation_action": _terms("operation_action", 10),
-            "four_ops": _terms("four_operation", 10),
-            "four_product": _terms("four_product_level", 10),
-            "biz_member_cluster": _terms("biz_member_cluster", 12),
-            "marketing_activity_page": _terms("marketing_activity_page", 10, exclude=["无", "不适用", "{}", "[]", "未知"]),
-            "marketing_activity_match_status": _terms("marketing_activity_match_status", 8, exclude=["无", "否", "不适用", "{}", "[]", "未知"]),
-            "marketing_activity_match_keywords": _terms("marketing_activity_match_keywords", 12, exclude=["无", "不适用", "{}", "[]", "未知"]),
-            "gender": _terms("gender", 5, exclude=["未知", "无", "不适用"]),
-            "age_ranges": _age_ranges(),
-            "time_period": _terms("time_period", 8),
-            "match_label": _terms("match_label", 10),
-            "avg_duration_minutes": {"avg": {"field": "duration_minutes"}},
-            "primary_secondary": {
-                "terms": {"field": "primary_labels", "size": 20},
-                "aggs": {"secondary": _terms("secondary_labels", 10)},
-            },
-            "primary_secondary_tertiary": {
-                "terms": {"field": "primary_labels", "size": 20},
-                "aggs": {
-                    "secondary": {
-                        "terms": {"field": "secondary_labels", "size": 30},
-                        "aggs": {
-                            "tertiary": _terms("tertiary_labels", 30),
-                        },
-                    }
-                },
-            },
-            "daily": {
-                "date_histogram": {
-                    "field": "service_time",
-                    "calendar_interval": "day",
-                    "format": "yyyy-MM-dd",
-                    "min_doc_count": 0,
-                },
-                "aggs": {
-                    "negative": {"filter": {"terms": {"scene_emotion": NEGATIVE_EMOTIONS}}},
-                    "top_primary": _terms("primary_labels", 3),
-                    "top_secondary": _terms("secondary_labels", 3),
-                    "top_tertiary": _terms("tertiary_labels", 3),
-                    "top_service_type": _terms("scene_service_type", 3),
-                    "top_member_cluster": _terms("biz_member_cluster", 3),
-                    "top_events": _terms("scene_event", 3),
-                    "top_operations": _terms("operation_action", 3),
-                    "top_matches": _terms("match_label", 3),
-                    "sample_hits": {
-                        "top_hits": {
-                            "size": 3,
-                            "_source": [
-                                "service_time",
-                                "content",
-                                "customer_key_appeal",
-                                "scene_emotion",
-                                "primary_labels",
-                                "secondary_labels",
-                                "tertiary_labels",
-                                "operation_action",
-                                "biz_member_cluster",
-                                "match_label",
-                            ],
-                        }
-                    },
-                },
-            },
-            "top_tertiary_examples": {
-                "terms": {"field": "tertiary_labels", "size": 5},
-                "aggs": {
-                    "top_appeals": _terms("customer_key_appeal.keyword", 3),
-                    "sample": {
-                        "top_hits": {
-                            "size": 2,
-                            "_source": [
-                                "gd_identity",
-                                "province_name",
-                                "service_time",
-                                "content",
-                                "customer_key_appeal",
-                                "scene_emotion",
-                                "operation_action",
-                                "biz_member_cluster",
-                                "latent_need",
-                            ],
-                        }
-                    },
-                },
-            },
-            "operation_need_examples": {
-                "terms": {"field": "operation_action", "size": 8},
-                "aggs": {
-                    "top_latent_needs": _text_terms("latent_need.keyword", 5),
-                    "top_member_clusters": _terms("biz_member_cluster", 5),
-                    "top_tertiary": _terms("tertiary_labels", 5),
-                    "sample": {
-                        "top_hits": {
-                            "size": 2,
-                            "_source": [
-                                "gd_identity",
-                                "service_time",
-                                "content",
-                                "customer_key_appeal",
-                                "operation_action",
-                                "latent_need",
-                                "latent_need_reason",
-                                "biz_member_cluster",
-                                "tertiary_labels",
-                            ],
-                        }
-                    },
-                },
-            },
-            "member_cluster_examples": {
-                "terms": {"field": "biz_member_cluster", "size": 10},
-                "aggs": {
-                    "top_tertiary": _terms("tertiary_labels", 5),
-                    "top_appeals": _terms("customer_key_appeal.keyword", 5),
-                    "sample": {
-                        "top_hits": {
-                            "size": 2,
-                            "_source": [
-                                "gd_identity",
-                                "service_time",
-                                "content",
-                                "customer_key_appeal",
-                                "biz_member_cluster",
-                                "tertiary_labels",
-                            ],
-                        }
-                    },
-                },
-            },
-            "latent_need_examples": {
-                "terms": {
-                    "field": "latent_need.keyword",
-                    "size": 10,
-                    "exclude": ["无", "不适用", "{}"],
-                },
-                "aggs": {
-                    "top_operations": _terms("operation_action", 5),
-                    "top_members": _terms("biz_member_cluster", 5),
-                    "sample": {
-                        "top_hits": {
-                            "size": 2,
-                            "_source": [
-                                "gd_identity",
-                                "service_time",
-                                "content",
-                                "latent_need",
-                                "latent_need_reason",
-                                "operation_action",
-                                "biz_member_cluster",
-                            ],
-                        }
-                    },
-                },
-            },
-        },
-    }
-    response = es.search(index=index_name, body=body)
+    response = executor.search_with_dates(
+        es,
+        index_name,
+        "90_runtime_overall_aggregations",
+        start_date=start_date,
+        end_date=end_date,
+    )
     result = normalize_aggregations(response.body, start_date, end_date)
     result["total_with_unlabeled"] = total_with_unlabeled
     result["unlabeled_analysis"] = run_unlabeled_analysis(es, index_name, start_date, end_date)
@@ -575,52 +386,13 @@ def run_unlabeled_analysis(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    filters = _date_filter(start_date, end_date)
-    filters.append({"bool": {"must_not": [{"exists": {"field": "primary_labels"}}]}})
-    query = {"bool": {"filter": filters}}
-    body = {
-        "size": 0,
-        "track_total_hits": True,
-        "query": query,
-        "aggs": {
-            "emotion": _terms("scene_emotion", 10),
-            "biz_member_cluster": _terms("biz_member_cluster", 10),
-            "province": _terms("province_name", 15),
-            "service_type": _terms("scene_service_type", 5),
-            "csp_name": _terms("csp_name", 10),
-            "operation_action": _terms("operation_action", 10),
-            "latent_need": _text_terms("latent_need.keyword", 10),
-            "customer_key_appeal": _terms("customer_key_appeal.keyword", 10),
-            "has_refund_demand": _terms("has_refund_demand", 5),
-            "has_escalation": _terms("has_escalation", 5),
-            "insight_dimension": _terms("insight_dimension", 10),
-            "time_period": _terms("time_period", 8),
-            "samples": {
-                "top_hits": {
-                    "size": 15,
-                    "_source": [
-                        "gd_identity",
-                        "content",
-                        "cs_reply",
-                        "customer_key_appeal",
-                        "operation_action",
-                        "latent_need",
-                        "latent_need_reason",
-                        "biz_member_cluster",
-                        "province_name",
-                        "scene_emotion",
-                        "scene_service_type",
-                        "csp_name",
-                        "has_refund_demand",
-                        "has_escalation",
-                        "insight_dimension",
-                        "time_period",
-                    ],
-                }
-            },
-        },
-    }
-    response = es.search(index=index_name, body=body)
+    response = TemplateExecutor().search_with_dates(
+        es,
+        index_name,
+        "90_runtime_unlabeled_analysis",
+        start_date=start_date,
+        end_date=end_date,
+    )
     return normalize_unlabeled_analysis(response.body)
 
 
@@ -675,31 +447,13 @@ def run_unlabeled_trend_analysis(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict[str, Any]:
-    filters = _date_filter(start_date, end_date)
-    filters.append({"bool": {"must_not": [{"exists": {"field": "primary_labels"}}]}})
-    query = {"bool": {"filter": filters}}
-    body = {
-        "size": 0,
-        "track_total_hits": True,
-        "query": query,
-        "aggs": {
-            "daily": {
-                "date_histogram": {
-                    "field": "service_time",
-                    "calendar_interval": "day",
-                    "format": "yyyy-MM-dd",
-                    "min_doc_count": 1,
-                },
-                "aggs": {
-                    "emotion": _terms("scene_emotion", 5),
-                    "top_appeal": _terms("customer_key_appeal.keyword", 3),
-                    "negative": {"filter": {"terms": {"scene_emotion": NEGATIVE_EMOTIONS}}},
-                },
-            },
-
-        },
-    }
-    response = es.search(index=index_name, body=body)
+    response = TemplateExecutor().search_with_dates(
+        es,
+        index_name,
+        "90_runtime_unlabeled_trend_analysis",
+        start_date=start_date,
+        end_date=end_date,
+    )
     return normalize_unlabeled_trend_analysis(response.body)
 
 

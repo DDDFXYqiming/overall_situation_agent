@@ -92,6 +92,13 @@ def canonical_tertiary_label(label: Any) -> str:
     return _CANONICAL_BY_NORM.get(_norm(text), text)
 
 
+def tertiary_label_variants(label: Any) -> tuple[str, ...]:
+    canonical = canonical_tertiary_label(label)
+    if not canonical:
+        return ()
+    return tuple(dict.fromkeys([canonical, *sorted(_ALIASES_BY_CANONICAL.get(canonical, set()))]))
+
+
 def canonical_primary_for_tertiary(label: Any) -> str:
     return _PRIMARY_BY_CANONICAL.get(canonical_tertiary_label(label), "")
 
@@ -161,4 +168,3 @@ def collect_md_tertiary_items(
             seen.add(canonical)
             items.append({**item, "primary_key": primary_key, "primary_count": primary_count})
     return items
-

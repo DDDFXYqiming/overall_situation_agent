@@ -1,7 +1,5 @@
 .env
 !.env.example
-README.internal.md
-SPEC.md
 .trae/
 
 outputs/

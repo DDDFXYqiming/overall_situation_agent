@@ -1906,6 +1906,39 @@ def _sanitize_executive_summary_actions(text: str) -> str:
     return cleaned
 
 
+def _contains_count_anchor(text: str, count: int) -> bool:
+    raw = str(int(count))
+    with_comma = f"{int(count):,}"
+    return raw in text or with_comma in text
+
+
+def _executive_summary_has_numeric_anchors(text: str, result: dict) -> bool:
+    top_items = [item for item in result.get("tertiary", [])[:3] if int(item.get("count", 0) or 0) > 0]
+    if not top_items:
+        return True
+    return all(_contains_count_anchor(text, int(item.get("count", 0) or 0)) for item in top_items)
+
+
+def _executive_summary_numeric_fallback(result: dict) -> str:
+    total = int(result.get("total_with_unlabeled", result.get("total", 0)) or 0)
+    top_items = [item for item in result.get("tertiary", [])[:3] if int(item.get("count", 0) or 0) > 0]
+    lines = ["一、三大问题"]
+    for idx, item in enumerate(top_items, start=1):
+        count = int(item.get("count", 0) or 0)
+        share = _pct(count, total)
+        lines.append(f"{idx}. {item.get('key')} — 涉及{_n(count)}件，占比{share}。")
+    lines.extend(
+        [
+            "",
+            "二、行动建议",
+            "1. 优先治理订购、退订、自动扣费前增加确认提示和权益兑现链路，确保用户在购买前后都能清楚理解规则和处理结果。",
+            "2. 对高频权益和多端体验问题建立异常识别、补发或退费处理闭环，减少重复投诉。",
+            "3. 将赛事日前后的投诉峰值纳入运营值守和产品验收，重点保障观看、兑换和客服解释口径一致。",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _build_executive_summary(result: dict, llm) -> str:
     """Generate executive summary for decision-makers."""
     total = result.get("total_with_unlabeled", result.get("total", 0))
@@ -1965,7 +1998,12 @@ def _build_executive_summary(result: dict, llm) -> str:
         if text and (not _looks_like_reasoning_meta(text)):
             if _contains_banned_retention_advice(text) and idx < len(attempts) - 1:
                 continue
-            return _sanitize_executive_summary_actions(text)
+            cleaned = _sanitize_executive_summary_actions(text)
+            if _executive_summary_has_numeric_anchors(cleaned, result):
+                return cleaned
+            if idx < len(attempts) - 1:
+                continue
+            return _executive_summary_numeric_fallback(result)
     raise RuntimeError("executive_summary LLM 多轮重试后仍失败。")
 
 

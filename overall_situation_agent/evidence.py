@@ -8,6 +8,7 @@ from typing import Any
 
 from .aggregations import _base_query, _date_filter
 from .es_client import SimpleElasticsearch
+from .template_executor import TemplateExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -89,17 +90,12 @@ def build_tertiary_evidence_package(
     samples_per_label: int | None = None,
 ) -> dict[str, Any]:
     query = base_query or {"match_all": {}}
-    top_response = es.search(
-        index=index_name,
-        body={
-            "size": 0,
-            "track_total_hits": True,
-            "query": query,
-            "aggs": {
-                "top_tertiary": {"terms": {"field": "tertiary_labels", "size": top_n}},
-                "tertiary_total": {"value_count": {"field": "tertiary_labels"}},
-            },
-        },
+    executor = TemplateExecutor()
+    top_response = executor.search(
+        es,
+        index_name,
+        "90_runtime_tertiary_cause_top",
+        {"query": query, "top_n": top_n},
     ).body
     doc_total = _total_hits(top_response)
     tertiary_total = int((top_response.get("aggregations", {}).get("tertiary_total") or {}).get("value") or 0)
@@ -115,21 +111,11 @@ def build_tertiary_evidence_package(
         label_count = int(bucket.get("doc_count", 0) or 0)
         label_query = _and_filter(query, {"term": {"tertiary_labels": label}})
         label_sample_size = max(1, min(requested_samples, label_count or requested_samples))
-        sample_response = es.search(
-            index=index_name,
-            body={
-                "size": label_sample_size,
-                "track_total_hits": True,
-                "query": label_query,
-                "_source": EVIDENCE_SOURCE_FIELDS,
-                "sort": [{"service_time": {"order": "desc"}}],
-                "aggs": {
-                    "top_customer_appeals": _terms("customer_key_appeal.keyword", 8),
-                    "top_customer_keywords": _terms("customer_keywords", 10),
-                    "top_cs_actions": _terms("cs_key_action.keyword", 8),
-                    "top_cs_keywords": _terms("cs_keywords", 10),
-                },
-            },
+        sample_response = executor.search(
+            es,
+            index_name,
+            "90_runtime_tertiary_cause_sample_for_query",
+            {"query": label_query, "sample_size": label_sample_size},
         ).body
         aggs = sample_response.get("aggregations", {})
         items.append(
@@ -333,18 +319,13 @@ def _fetch_tertiary_buckets(
     top_n: int,
     labels: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    labeled_query = _base_query(start_date, end_date, exclude_unlabeled=True)
-    terms_body: dict[str, Any] = {"field": "tertiary_labels", "size": top_n}
-    if labels:
-        terms_body["include"] = labels
-    top_response = es.search(
-        index=index_name,
-        body={
-            "size": 0,
-            "track_total_hits": True,
-            "query": labeled_query,
-            "aggs": {"tertiary_top": {"terms": terms_body}},
-        },
+    top_response = TemplateExecutor().search_with_dates(
+        es,
+        index_name,
+        "90_runtime_tertiary_report_top_buckets",
+        start_date=start_date,
+        end_date=end_date,
+        params={"top_n": top_n, "labels": labels or None},
     )
     return top_response.body["aggregations"]["tertiary_top"].get("buckets", [])
 
@@ -355,24 +336,12 @@ def _sample_body_for_label(
     start_date: str | None,
     end_date: str | None,
 ) -> dict[str, Any]:
-    return {
-        "size": sample_size,
-        "track_total_hits": True,
-        "query": {
-            "bool": {
-                "filter": [
-                    {"term": {"tertiary_labels": label}},
-                    *_date_filter(start_date, end_date),
-                    {"exists": {"field": "primary_labels"}},
-                ],
-            },
-        },
-        "_source": _REPORT_SOURCE_FIELDS,
-        "aggs": {
-            "appeal_agg": {"terms": {"field": "customer_key_appeal.keyword", "size": 5}},
-            "cs_action_agg": {"terms": {"field": "cs_key_action.keyword", "size": 5}},
-        },
-    }
+    return TemplateExecutor().render_with_dates(
+        "90_runtime_tertiary_report_sample_for_label",
+        start_date=start_date,
+        end_date=end_date,
+        params={"tertiary_label": label, "sample_size": sample_size},
+    )
 
 
 def _response_body(response: Any) -> dict[str, Any]:

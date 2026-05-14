@@ -1,0 +1,1367 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "migu_analyzer": {
+          "type": "custom",
+          "tokenizer": "ik_max_word",
+          "filter": [
+            "lowercase"
+          ]
+        },
+        "migu_search_analyzer": {
+          "type": "custom",
+          "tokenizer": "ik_smart",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": true,
+    "_meta": {
+      "description": "咪咕视频中超赛事用户洞察“一、整体情况”项目：Excel 导入 Elasticsearch 后的字段映射说明。",
+      "main_data_source": "C:\\Users\\86187\\Desktop\\营服工作记录2026\\调研\\标签\\新数据20260511\\im-10086-新工单数据汇总_比赛信息已验证_省份数据更新龄_营销活动打标(1).xlsx",
+      "main_sheet_name": "Sheet1",
+      "main_row_count": 2194,
+      "main_column_count": 44,
+      "main_source_headers": [
+        "工单编号",
+        "省份编码",
+        "省份名称",
+        "服务时间",
+        "截止时间",
+        "服务时间到截止时间的耗时（分钟为单位）",
+        "开始时间的月份",
+        "日期",
+        "时段",
+        "具体时间（时:分）",
+        "工单内容",
+        "处理意见（客服回复）",
+        "反馈思路",
+        "工单投诉内容",
+        "CSP_ID（服务提供商ID）",
+        "CSP_NAME（服务提供商名称）",
+        "CSP_PROV_ID（服务提供商省份ID）",
+        "CSP_PROV_NAME（服务提供商省份名称）",
+        "标签组",
+        "一级标签集合",
+        "二级标签集合",
+        "三级标签集合",
+        "触发场景-赛事/事件",
+        "触发场景-情绪",
+        "触发场景-服务类型",
+        "洞察维度",
+        "客户关键诉求",
+        "客户诉求关键词",
+        "客服关键处理动作",
+        "客服处理关键词",
+        "是否有退费诉求",
+        "是否有升级投诉倾向",
+        "模型推理说明",
+        "比赛信息",
+        "运营举措",
+        "隐性需求描述",
+        "隐性需求理由",
+        "涉及业务/会员类型_聚类",
+        "年龄",
+        "性别",
+        "营销活动页面名称",
+        "营销活动匹配状态",
+        "营销活动匹配关键词",
+        "营销活动匹配说明"
+      ],
+      "main_header_mapping": [
+        {
+          "source_header": "工单编号",
+          "es_field": "gd_identity",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "省份编码",
+          "es_field": "province",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "省份名称",
+          "es_field": "province_name",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "服务时间",
+          "es_field": "service_time",
+          "declared_in_schema": true,
+          "type": "date",
+          "multi_value": false
+        },
+        {
+          "source_header": "截止时间",
+          "es_field": "end_time",
+          "declared_in_schema": true,
+          "type": "date",
+          "multi_value": false
+        },
+        {
+          "source_header": "服务时间到截止时间的耗时（分钟为单位）",
+          "es_field": "duration_minutes",
+          "declared_in_schema": true,
+          "type": "float",
+          "multi_value": false
+        },
+        {
+          "source_header": "开始时间的月份",
+          "es_field": "month",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "日期",
+          "es_field": "day",
+          "declared_in_schema": true,
+          "type": "integer",
+          "multi_value": false
+        },
+        {
+          "source_header": "时段",
+          "es_field": "time_period",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "具体时间（时:分）",
+          "es_field": "hour",
+          "declared_in_schema": true,
+          "type": "integer",
+          "multi_value": false
+        },
+        {
+          "source_header": "工单内容",
+          "es_field": "content",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "处理意见（客服回复）",
+          "es_field": "cs_reply",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "反馈思路",
+          "es_field": "feedback_thought",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "工单投诉内容",
+          "es_field": "complaint_content",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "CSP_ID（服务提供商ID）",
+          "es_field": "csp_id",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "CSP_NAME（服务提供商名称）",
+          "es_field": "csp_name",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "CSP_PROV_ID（服务提供商省份ID）",
+          "es_field": "csp_prov_id",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "CSP_PROV_NAME（服务提供商省份名称）",
+          "es_field": "csp_prov_name",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "标签组",
+          "es_field": "label_group",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "一级标签集合",
+          "es_field": "primary_labels",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "二级标签集合",
+          "es_field": "secondary_labels",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "三级标签集合",
+          "es_field": "tertiary_labels",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "触发场景-赛事/事件",
+          "es_field": "scene_event",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "触发场景-情绪",
+          "es_field": "scene_emotion",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "触发场景-服务类型",
+          "es_field": "scene_service_type",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "洞察维度",
+          "es_field": "insight_dimension",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "客户关键诉求",
+          "es_field": "customer_key_appeal",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "客户诉求关键词",
+          "es_field": "customer_keywords",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "客服关键处理动作",
+          "es_field": "cs_key_action",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "客服处理关键词",
+          "es_field": "cs_keywords",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "是否有退费诉求",
+          "es_field": "has_refund_demand",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "是否有升级投诉倾向",
+          "es_field": "has_escalation",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "模型推理说明",
+          "es_field": "model_reasoning",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "比赛信息",
+          "es_field": "match_info",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "运营举措",
+          "es_field": "operation_action",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "隐性需求描述",
+          "es_field": "latent_need",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "隐性需求理由",
+          "es_field": "latent_need_reason",
+          "declared_in_schema": true,
+          "type": "text",
+          "multi_value": false
+        },
+        {
+          "source_header": "涉及业务/会员类型_聚类",
+          "es_field": "biz_member_cluster",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "年龄",
+          "es_field": "age",
+          "declared_in_schema": true,
+          "type": "integer",
+          "multi_value": false
+        },
+        {
+          "source_header": "性别",
+          "es_field": "gender",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "营销活动页面名称",
+          "es_field": "marketing_activity_page",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "营销活动匹配状态",
+          "es_field": "marketing_activity_match_status",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": false
+        },
+        {
+          "source_header": "营销活动匹配关键词",
+          "es_field": "marketing_activity_match_keywords",
+          "declared_in_schema": true,
+          "type": "keyword",
+          "multi_value": true
+        },
+        {
+          "source_header": "营销活动匹配说明",
+          "es_field": "营销活动匹配说明",
+          "declared_in_schema": false,
+          "type": "text",
+          "multi_value": false
+        }
+      ],
+      "schedule_mapping": {
+        "source_file": "C:\\Users\\86187\\Desktop\\营服工作记录2026\\调研\\标签\\data\\2026怡宝中国足球超级联赛赛程_0409_更新.xlsx",
+        "sheet_name": "联赛赛程",
+        "title": "2026怡宝中国足球超级联赛赛程",
+        "raw_header_row": [
+          "轮次",
+          "场序",
+          "日期",
+          "日期",
+          "主队",
+          "客队",
+          "球场",
+          "城市",
+          "时间",
+          "备注"
+        ],
+        "row_count": 242,
+        "column_count": 10,
+        "note": "赛程表不批量写入主工单 ES 索引；报告生成时由 schedule_loader.load_schedule_context 读取后注入报告上下文。",
+        "fields": [
+          {
+            "source_header": "轮次",
+            "parsed_path": "days[day_key].rounds[]",
+            "usage": "赛事摘要前缀，例如第1轮、第2轮。"
+          },
+          {
+            "source_header": "日期",
+            "parsed_path": "day_key",
+            "usage": "比赛日日期，用于与 service_time 的 date_histogram 日期等值匹配。"
+          },
+          {
+            "source_header": "主队",
+            "parsed_path": "days[day_key].matches[].home",
+            "usage": "赛事摘要中的主队。"
+          },
+          {
+            "source_header": "客队",
+            "parsed_path": "days[day_key].matches[].away",
+            "usage": "赛事摘要中的客队。"
+          },
+          {
+            "source_header": "城市",
+            "parsed_path": "days[day_key].matches[].city",
+            "usage": "赛事城市背景。"
+          },
+          {
+            "source_header": "时间",
+            "parsed_path": "days[day_key].matches[].time",
+            "usage": "开赛时间，格式化为 HH:MM。"
+          },
+          {
+            "source_header": "场序",
+            "parsed_path": null,
+            "usage": "赛程源表保留字段，本报告当前不使用。"
+          },
+          {
+            "source_header": "球场",
+            "parsed_path": null,
+            "usage": "赛程源表保留字段，本报告当前不使用。"
+          },
+          {
+            "source_header": "备注",
+            "parsed_path": null,
+            "usage": "赛程源表保留字段，本报告当前不使用。"
+          },
+          {
+            "source_header": "日期（Excel序列值重复列）",
+            "parsed_path": null,
+            "usage": "源表存在重复“日期”列，当前解析使用第一个可规范化日期列。"
+          }
+        ],
+        "derived_context_fields": {
+          "days[day_key].is_matchday": "固定为 true，表示该 day_key 是赛事日。",
+          "days[day_key].match_count": "当天比赛场次数。",
+          "days[day_key].match_summary": "由轮次、时间、主队、客队拼接的赛事摘要。",
+          "coverage.start": "赛程文件覆盖起始日期。",
+          "coverage.end": "赛程文件覆盖结束日期。"
+        },
+        "join_rule": "ES 侧按 service_time 做 date_histogram，得到 daily.buckets[].key_as_string 后与 day_key 等值匹配，命中则标记 daily[i].is_matchday=true 并注入 matchday 上下文。"
+      },
+      "import_code": {
+        "schema": "overall_situation_agent/schema.py::index_mapping",
+        "field_aliases": "overall_situation_agent/excel_loader.py::FIELD_ALIASES",
+        "row_transform": "overall_situation_agent/excel_loader.py::_row_to_document",
+        "schedule_loader": "overall_situation_agent/schedule_loader.py::load_schedule_context"
+      },
+      "notes": [
+        "主工单数据导入 ES 使用 canonical 英文字段名，例如 service_time、primary_labels、tertiary_labels。",
+        "多值字段在导入时按顿号、逗号、分号、竖线拆分，并过滤“无”“不适用”“{}”“[]”。",
+        "content 字段会优先使用 complaint_content，其次 content、model_reasoning、latent_need。",
+        "赛程文件不写入主索引，只在报告生成阶段用于标记赛事日和生成赛事摘要。",
+        "本文件已按参考模板补充 settings.analysis：migu_analyzer 使用 ik_max_word，migu_search_analyzer 使用 ik_smart。",
+        "当前仅对 es_mapping.json 做模板对齐；若用于真实建索引，需要后续同步修改 schema.py 并确认 Elasticsearch 安装 IK 分词插件。"
+      ],
+      "field_catalog": {
+        "gd_identity": {
+          "source_headers": [
+            "工单编号"
+          ],
+          "canonical_field": "gd_identity",
+          "field_category": "keyword",
+          "usage": "工单唯一标识，抽样定位和去重追溯。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "province": {
+          "source_headers": [
+            "省份编码"
+          ],
+          "canonical_field": "province",
+          "field_category": "keyword",
+          "usage": "省份编码。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "province_name": {
+          "source_headers": [
+            "省份名称"
+          ],
+          "canonical_field": "province_name",
+          "field_category": "keyword",
+          "usage": "省份名称，可用于省份维度聚合。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "csp_id": {
+          "source_headers": [
+            "CSP_ID（服务提供商ID）"
+          ],
+          "canonical_field": "csp_id",
+          "field_category": "keyword",
+          "usage": "服务提供商 ID。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "csp_name": {
+          "source_headers": [
+            "CSP_NAME（服务提供商名称）"
+          ],
+          "canonical_field": "csp_name",
+          "field_category": "keyword",
+          "usage": "服务提供商名称，用于未标注渠道/终端线索分析。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "csp_prov_id": {
+          "source_headers": [
+            "CSP_PROV_ID（服务提供商省份ID）"
+          ],
+          "canonical_field": "csp_prov_id",
+          "field_category": "keyword",
+          "usage": "服务提供商省份 ID。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "csp_prov_name": {
+          "source_headers": [
+            "CSP_PROV_NAME（服务提供商省份名称）"
+          ],
+          "canonical_field": "csp_prov_name",
+          "field_category": "keyword",
+          "usage": "服务提供商省份名称。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "month": {
+          "source_headers": [
+            "开始时间的月份"
+          ],
+          "canonical_field": "month",
+          "field_category": "keyword",
+          "usage": "服务开始月份。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "time_period": {
+          "source_headers": [
+            "时段"
+          ],
+          "canonical_field": "time_period",
+          "field_category": "keyword",
+          "usage": "时段标签。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "label_group": {
+          "source_headers": [
+            "标签组"
+          ],
+          "canonical_field": "label_group",
+          "field_category": "keyword",
+          "usage": "原始标签组结构，可拆分为标签路径。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "按 JSON 标签组或分隔符拆分；空值、“无”、“不适用”、“{}”、“[]”会被过滤。"
+        },
+        "primary_labels": {
+          "source_headers": [
+            "一级标签集合"
+          ],
+          "canonical_field": "primary_labels",
+          "field_category": "keyword",
+          "usage": "一级标签集合，用于已标注判定、一级分布和一级模块标题。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "secondary_labels": {
+          "source_headers": [
+            "二级标签集合"
+          ],
+          "canonical_field": "secondary_labels",
+          "field_category": "keyword",
+          "usage": "二级标签集合，用于二级分布和异动节点主要二级问题。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "tertiary_labels": {
+          "source_headers": [
+            "三级标签集合"
+          ],
+          "canonical_field": "tertiary_labels",
+          "field_category": "keyword",
+          "usage": "三级标签集合，用于三级分布、Top 痛点、一级内诉求分布和三级小节标题。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "scene_event": {
+          "source_headers": [
+            "触发场景-赛事/事件"
+          ],
+          "canonical_field": "scene_event",
+          "field_category": "keyword",
+          "usage": "触发场景中的赛事/事件线索。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "scene_emotion": {
+          "source_headers": [
+            "触发场景-情绪"
+          ],
+          "canonical_field": "scene_emotion",
+          "field_category": "keyword",
+          "usage": "触发场景情绪，用于情绪分布和负向情绪占比。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "scene_service_type": {
+          "source_headers": [
+            "触发场景-服务类型"
+          ],
+          "canonical_field": "scene_service_type",
+          "field_category": "keyword",
+          "usage": "触发场景服务类型，用于服务类型热点、趋势业务表现和异动节点。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "insight_dimension": {
+          "source_headers": [
+            "洞察维度"
+          ],
+          "canonical_field": "insight_dimension",
+          "field_category": "keyword",
+          "usage": "洞察维度。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "customer_keywords": {
+          "source_headers": [
+            "客户诉求关键词"
+          ],
+          "canonical_field": "customer_keywords",
+          "field_category": "keyword",
+          "usage": "客户诉求关键词，用于三级总结补充。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "cs_keywords": {
+          "source_headers": [
+            "客服处理关键词"
+          ],
+          "canonical_field": "cs_keywords",
+          "field_category": "keyword",
+          "usage": "客服处理关键词，用于三级总结补充。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "biz_type": {
+          "source_headers": [],
+          "canonical_field": "biz_type",
+          "field_category": "keyword",
+          "usage": "项目 schema 支持字段。",
+          "multi_value": true,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "operation_action": {
+          "source_headers": [
+            "运营举措"
+          ],
+          "canonical_field": "operation_action",
+          "field_category": "keyword",
+          "usage": "运营举措。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "biz_member_cluster": {
+          "source_headers": [
+            "涉及业务/会员类型_聚类"
+          ],
+          "canonical_field": "biz_member_cluster",
+          "field_category": "keyword",
+          "usage": "涉及业务/会员类型聚类，用于趋势和异动节点业务热点。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "marketing_activity_page": {
+          "source_headers": [
+            "营销活动页面名称"
+          ],
+          "canonical_field": "marketing_activity_page",
+          "field_category": "keyword",
+          "usage": "营销活动页面名称。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "marketing_activity_match_status": {
+          "source_headers": [
+            "营销活动匹配状态"
+          ],
+          "canonical_field": "marketing_activity_match_status",
+          "field_category": "keyword",
+          "usage": "营销活动匹配状态。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "marketing_activity_match_keywords": {
+          "source_headers": [
+            "营销活动匹配关键词"
+          ],
+          "canonical_field": "marketing_activity_match_keywords",
+          "field_category": "keyword",
+          "usage": "营销活动匹配关键词。",
+          "multi_value": true,
+          "source_status": "from_current_main_source",
+          "transform": "多值字段，按顿号/逗号/分号/竖线拆分并过滤空值。"
+        },
+        "gender": {
+          "source_headers": [
+            "性别"
+          ],
+          "canonical_field": "gender",
+          "field_category": "keyword",
+          "usage": "性别。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "match_label": {
+          "source_headers": [],
+          "canonical_field": "match_label",
+          "field_category": "keyword",
+          "usage": "由 match_info 派生的比赛标签，用于赛事相关聚合和样本展示。",
+          "multi_value": true,
+          "source_status": "derived_field",
+          "transform": "由 match_info 解析日期、主队、客队后派生；若无法解析 JSON，则截取原文本。"
+        },
+        "has_refund_demand": {
+          "source_headers": [
+            "是否有退费诉求"
+          ],
+          "canonical_field": "has_refund_demand",
+          "field_category": "keyword",
+          "usage": "是否有退费诉求。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "has_escalation": {
+          "source_headers": [
+            "是否有升级投诉倾向"
+          ],
+          "canonical_field": "has_escalation",
+          "field_category": "keyword",
+          "usage": "是否有升级投诉倾向。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "session_id": {
+          "source_headers": [],
+          "canonical_field": "session_id",
+          "field_category": "keyword",
+          "usage": "会话 ID，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "phone_number": {
+          "source_headers": [],
+          "canonical_field": "phone_number",
+          "field_category": "keyword",
+          "usage": "号码，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "product_name": {
+          "source_headers": [],
+          "canonical_field": "product_name",
+          "field_category": "keyword",
+          "usage": "咪咕产品名称，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "message_subtype": {
+          "source_headers": [],
+          "canonical_field": "message_subtype",
+          "field_category": "keyword",
+          "usage": "消息子类型，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "message_type": {
+          "source_headers": [],
+          "canonical_field": "message_type",
+          "field_category": "keyword",
+          "usage": "消息类型，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "channel_id": {
+          "source_headers": [],
+          "canonical_field": "channel_id",
+          "field_category": "keyword",
+          "usage": "渠道 ID，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "channel_name": {
+          "source_headers": [],
+          "canonical_field": "channel_name",
+          "field_category": "keyword",
+          "usage": "渠道名称，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "user_identity": {
+          "source_headers": [],
+          "canonical_field": "user_identity",
+          "field_category": "keyword",
+          "usage": "用户标识，当前源表未使用但 schema 支持。",
+          "multi_value": false,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "four_product_level": {
+          "source_headers": [],
+          "canonical_field": "four_product_level",
+          "field_category": "keyword",
+          "usage": "四个产品层次，当前源表未使用但 schema 支持。",
+          "multi_value": true,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "four_operation": {
+          "source_headers": [],
+          "canonical_field": "four_operation",
+          "field_category": "keyword",
+          "usage": "四个运营，当前源表未使用但 schema 支持。",
+          "multi_value": true,
+          "source_status": "schema_supported_not_in_current_source"
+        },
+        "content": {
+          "source_headers": [
+            "工单内容"
+          ],
+          "canonical_field": "content",
+          "field_category": "text",
+          "usage": "工单内容/投诉内容合并后的主文本，用于原声、样本摘要和文本检索。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "transform": "在 complaint_content、content、model_reasoning、latent_need 中按优先级选择非空文本写入 content。",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "cs_reply": {
+          "source_headers": [
+            "处理意见（客服回复）"
+          ],
+          "canonical_field": "cs_reply",
+          "field_category": "text",
+          "usage": "处理意见/客服回复，用于客服应对摘要。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "feedback_thought": {
+          "source_headers": [
+            "反馈思路"
+          ],
+          "canonical_field": "feedback_thought",
+          "field_category": "text",
+          "usage": "反馈思路。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "complaint_content": {
+          "source_headers": [
+            "工单投诉内容"
+          ],
+          "canonical_field": "complaint_content",
+          "field_category": "text",
+          "usage": "工单投诉内容；导入后优先并入 content。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "customer_key_appeal": {
+          "source_headers": [
+            "客户关键诉求"
+          ],
+          "canonical_field": "customer_key_appeal",
+          "field_category": "text",
+          "usage": "客户关键诉求，用于未标注诉求、证据聚合和 LLM 分析输入。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "cs_key_action": {
+          "source_headers": [
+            "客服关键处理动作"
+          ],
+          "canonical_field": "cs_key_action",
+          "field_category": "text",
+          "usage": "客服关键处理动作，用于证据聚合和客服应对摘要。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "model_reasoning": {
+          "source_headers": [
+            "模型推理说明"
+          ],
+          "canonical_field": "model_reasoning",
+          "field_category": "text",
+          "usage": "模型推理说明。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "latent_need": {
+          "source_headers": [
+            "隐性需求描述"
+          ],
+          "canonical_field": "latent_need",
+          "field_category": "text",
+          "usage": "隐性需求描述。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "latent_need_reason": {
+          "source_headers": [
+            "隐性需求理由"
+          ],
+          "canonical_field": "latent_need_reason",
+          "field_category": "text",
+          "usage": "隐性需求理由。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "match_info": {
+          "source_headers": [
+            "比赛信息"
+          ],
+          "canonical_field": "match_info",
+          "field_category": "text",
+          "usage": "比赛信息 JSON/文本，导入时可派生 match_label。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        },
+        "service_time": {
+          "source_headers": [
+            "服务时间"
+          ],
+          "canonical_field": "service_time",
+          "field_category": "date",
+          "usage": "服务发生时间，用于报告周期过滤、每日趋势、峰值和赛事日匹配。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "end_time": {
+          "source_headers": [
+            "截止时间"
+          ],
+          "canonical_field": "end_time",
+          "field_category": "date",
+          "usage": "服务截止时间。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "duration_hours": {
+          "source_headers": [],
+          "canonical_field": "duration_hours",
+          "field_category": "float",
+          "usage": "由 duration_minutes 派生的小时口径耗时。",
+          "multi_value": false,
+          "source_status": "derived_field",
+          "transform": "若源表没有小时口径但存在 duration_minutes，则按分钟/60 派生并保留 4 位小数。"
+        },
+        "duration_minutes": {
+          "source_headers": [
+            "服务时间到截止时间的耗时（分钟为单位）"
+          ],
+          "canonical_field": "duration_minutes",
+          "field_category": "float",
+          "usage": "服务时间到截止时间的耗时，分钟口径。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "day": {
+          "source_headers": [
+            "日期"
+          ],
+          "canonical_field": "day",
+          "field_category": "integer",
+          "usage": "源表日期字段；报告每日趋势优先使用 service_time 聚合。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "hour": {
+          "source_headers": [
+            "具体时间（时:分）"
+          ],
+          "canonical_field": "hour",
+          "field_category": "integer",
+          "usage": "具体小时，由“具体时间（时:分）”解析。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "transform": "从“具体时间（时:分）”提取小时；若为数字则转整数。"
+        },
+        "age": {
+          "source_headers": [
+            "年龄"
+          ],
+          "canonical_field": "age",
+          "field_category": "integer",
+          "usage": "年龄。",
+          "multi_value": false,
+          "source_status": "from_current_main_source"
+        },
+        "source_file": {
+          "source_headers": [],
+          "canonical_field": "source_file",
+          "field_category": "keyword",
+          "usage": "导入来源文件名，导入程序自动写入。",
+          "multi_value": false,
+          "source_status": "derived_field"
+        },
+        "imported_at": {
+          "source_headers": [],
+          "canonical_field": "imported_at",
+          "field_category": "date",
+          "usage": "导入时间，导入程序自动写入。",
+          "multi_value": false,
+          "source_status": "derived_field"
+        },
+        "营销活动匹配说明": {
+          "source_headers": [
+            "营销活动匹配说明"
+          ],
+          "canonical_field": "营销活动匹配说明",
+          "field_category": "dynamic_text",
+          "usage": "源表中未配置别名的动态字段，按中文字段名保留，用于解释营销活动匹配情况。",
+          "multi_value": false,
+          "source_status": "from_current_main_source",
+          "dynamic_field": true,
+          "transform": "FIELD_ALIASES 未配置该中文表头；导入时按原中文表头作为字段名进入 ES，dynamic=true 时由 Elasticsearch 动态映射。",
+          "mapping_notes": [
+            "文本字段已按模板配置 migu_analyzer / migu_search_analyzer；真实索引需 Elasticsearch 安装 IK 分词插件并在 schema.py 中同步配置。"
+          ]
+        }
+      }
+    },
+    "properties": {
+      "gd_identity": {
+        "type": "keyword"
+      },
+      "province": {
+        "type": "keyword"
+      },
+      "province_name": {
+        "type": "keyword"
+      },
+      "csp_id": {
+        "type": "keyword"
+      },
+      "csp_name": {
+        "type": "keyword"
+      },
+      "csp_prov_id": {
+        "type": "keyword"
+      },
+      "csp_prov_name": {
+        "type": "keyword"
+      },
+      "month": {
+        "type": "keyword"
+      },
+      "time_period": {
+        "type": "keyword"
+      },
+      "label_group": {
+        "type": "keyword"
+      },
+      "primary_labels": {
+        "type": "keyword"
+      },
+      "secondary_labels": {
+        "type": "keyword"
+      },
+      "tertiary_labels": {
+        "type": "keyword"
+      },
+      "scene_event": {
+        "type": "keyword"
+      },
+      "scene_emotion": {
+        "type": "keyword"
+      },
+      "scene_service_type": {
+        "type": "keyword"
+      },
+      "insight_dimension": {
+        "type": "keyword"
+      },
+      "customer_keywords": {
+        "type": "keyword"
+      },
+      "cs_keywords": {
+        "type": "keyword"
+      },
+      "biz_type": {
+        "type": "keyword"
+      },
+      "operation_action": {
+        "type": "keyword"
+      },
+      "biz_member_cluster": {
+        "type": "keyword"
+      },
+      "marketing_activity_page": {
+        "type": "keyword"
+      },
+      "marketing_activity_match_status": {
+        "type": "keyword"
+      },
+      "marketing_activity_match_keywords": {
+        "type": "keyword"
+      },
+      "gender": {
+        "type": "keyword"
+      },
+      "match_label": {
+        "type": "keyword"
+      },
+      "has_refund_demand": {
+        "type": "keyword"
+      },
+      "has_escalation": {
+        "type": "keyword"
+      },
+      "session_id": {
+        "type": "keyword"
+      },
+      "phone_number": {
+        "type": "keyword"
+      },
+      "product_name": {
+        "type": "keyword"
+      },
+      "message_subtype": {
+        "type": "keyword"
+      },
+      "message_type": {
+        "type": "keyword"
+      },
+      "channel_id": {
+        "type": "keyword"
+      },
+      "channel_name": {
+        "type": "keyword"
+      },
+      "user_identity": {
+        "type": "keyword"
+      },
+      "four_product_level": {
+        "type": "keyword"
+      },
+      "four_operation": {
+        "type": "keyword"
+      },
+      "content": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "cs_reply": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "feedback_thought": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "complaint_content": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "customer_key_appeal": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "cs_key_action": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "model_reasoning": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "latent_need": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "latent_need_reason": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "match_info": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      },
+      "service_time": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||strict_date_optional_time"
+      },
+      "end_time": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss||yyyy-MM-dd||strict_date_optional_time"
+      },
+      "duration_hours": {
+        "type": "float"
+      },
+      "duration_minutes": {
+        "type": "float"
+      },
+      "day": {
+        "type": "integer"
+      },
+      "hour": {
+        "type": "integer"
+      },
+      "age": {
+        "type": "integer"
+      },
+      "source_file": {
+        "type": "keyword"
+      },
+      "imported_at": {
+        "type": "date"
+      },
+      "营销活动匹配说明": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        },
+        "analyzer": "migu_analyzer",
+        "search_analyzer": "migu_search_analyzer"
+      }
+    }
+  }
+}

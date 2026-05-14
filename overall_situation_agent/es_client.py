@@ -281,6 +281,11 @@ def _is_cluster_event_timeout(exc: ElasticsearchError) -> bool:
     return "HTTP 429" in text and "process_cluster_event_timeout_exception" in text
 
 
+def _is_missing_ik_tokenizer(exc: ElasticsearchError) -> bool:
+    text = str(exc)
+    return "failed to find tokenizer under name [ik_" in text or "Unknown tokenizer type [ik_" in text
+
+
 def _wait_for_pending_delete_clear(es: SimpleElasticsearch, index_name: str, timeout_seconds: int = 120) -> bool:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -356,6 +361,15 @@ def ensure_index(es: SimpleElasticsearch, index_name: str, recreate: bool = Fals
             _clear_index_documents(es, index_name)
 
     if not es.indices.exists(index=index_name):
-        es.indices.create(index=index_name, body=index_mapping())
+        try:
+            es.indices.create(index=index_name, body=index_mapping())
+        except ElasticsearchError as exc:
+            if _is_missing_ik_tokenizer(exc):
+                raise ElasticsearchError(
+                    "创建 Elasticsearch 索引失败：es_mapping.json 使用了 IK 分词器 "
+                    "ik_max_word/ik_smart，但当前 Elasticsearch 未安装或未启用 analysis-ik 插件。"
+                    "请安装 IK 插件并重启 Elasticsearch 后再重试；本项目不会静默降级 mapping。"
+                ) from exc
+            raise
     else:
         _ensure_index_mapping(es, index_name)

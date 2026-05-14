@@ -1,0 +1,53 @@
+{
+  "question": "在1.1问题分布概览里，一级、二级、三级和情绪的主要分布分别是什么？",
+  "description": "一级、二级、三级、情绪分布一次聚合，分母为总服务数据量；用于生成分布结论中的 Top 一级、Top 二级、Top 三级和情绪结构。",
+  "dsl": {
+    "size": 0,
+    "track_total_hits": true,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          },
+          {
+            "exists": {
+              "field": "primary_labels"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "primary": {
+        "terms": {
+          "field": "primary_labels",
+          "size": 20
+        }
+      },
+      "secondary": {
+        "terms": {
+          "field": "secondary_labels",
+          "size": 30
+        }
+      },
+      "tertiary": {
+        "terms": {
+          "field": "tertiary_labels",
+          "size": 30
+        }
+      },
+      "emotion": {
+        "terms": {
+          "field": "scene_emotion",
+          "size": 20
+        }
+      }
+    }
+  }
+}

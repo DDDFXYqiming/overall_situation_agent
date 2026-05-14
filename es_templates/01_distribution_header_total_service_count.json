@@ -1,0 +1,22 @@
+{
+  "question": "这份报告在2026年3月的总服务数据量是多少？",
+  "description": "统计查询周期内全量服务数据命中数，不排除未标注数据。hits.total.value 即总服务数据量。",
+  "dsl": {
+    "size": 0,
+    "track_total_hits": true,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "range": {
+              "service_time": {
+                "gte": "{{start_date}}",
+                "lt": "{{end_date_exclusive}}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

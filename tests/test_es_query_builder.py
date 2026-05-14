@@ -36,6 +36,44 @@ class ESQueryBuilderDeterministicIntentTests(unittest.TestCase):
         ]:
             self.assertIn(field, intent["expected_fields"])
 
+    def test_primary_scoped_tertiary_distribution_keeps_primary_denominator(self) -> None:
+        intent = self.builder.build_deterministic_intent(
+            "一级标签业务体验下面的三级标签退订困难/自动续费争议的数量和占该一级问题比例是多少？"
+        )
+
+        self.assertIsNotNone(intent)
+        assert intent is not None
+        self.assertEqual(intent["metadata"]["template_id"], "02_primary_tertiary_title_count")
+        self.assertEqual(intent["metadata"]["template_params"]["primary_label"], "业务体验")
+        self.assertEqual(intent["metadata"]["template_params"]["tertiary_label"], "退订困难/自动续费争议")
+        aggs = intent["query"]["aggs"]
+        self.assertEqual(aggs["primary_total"]["filter"], {"term": {"primary_labels": "业务体验"}})
+        self.assertEqual(
+            aggs["tertiary_count"]["filter"]["bool"]["must"],
+            [
+                {"term": {"primary_labels": "业务体验"}},
+                {"term": {"tertiary_labels": "退订困难/自动续费争议"}},
+            ],
+        )
+
+        summary = self.builder.summarize_results(
+            {
+                "hits_total": 1144,
+                "hits": [],
+                "aggregations": {
+                    "tertiary_distribution": {
+                        "buckets": [
+                            {"key": "退订困难/自动续费争议", "doc_count": 539},
+                        ]
+                    }
+                },
+            }
+        )
+
+        terms = summary["aggregations"][0]
+        self.assertEqual(terms["share_denominator"], 1144)
+        self.assertEqual(terms["items"][0]["share"], round(539 / 1144, 4))
+
     def test_dynamic_sample_size_matches_expected_data_scale(self) -> None:
         self.assertEqual(dynamic_samples_per_label(2_000), 24)
         self.assertEqual(dynamic_samples_per_label(10_000), 48)
