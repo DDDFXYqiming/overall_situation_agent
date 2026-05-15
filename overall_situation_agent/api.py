@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 import queue
+import re
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -9,8 +11,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -40,6 +44,10 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     schedule_input: Path | None = None
+
+
+UPLOAD_SUFFIXES = {".xlsx", ".xlsm"}
+REPORT_SUFFIXES = {".html", ".md"}
 
 
 @dataclass
@@ -120,18 +128,51 @@ class ChatSessionStore:
             return sid, session
 
 
-def _path_result(path: Path) -> dict[str, str]:
+def _report_url(path: Path, outputs_dir: Path) -> str | None:
+    resolved = path.resolve()
+    output_root = outputs_dir.resolve()
+    if resolved.parent != output_root or resolved.suffix.lower() not in REPORT_SUFFIXES:
+        return None
+    return f"/api/reports/{quote(resolved.name)}"
+
+
+def _path_result(path: Path, outputs_dir: Path) -> dict[str, str | None]:
+    html_path = path.resolve()
+    markdown_path = html_path.with_suffix(".md")
     return {
-        "html_path": str(path.resolve()),
-        "markdown_path": str(path.with_suffix(".md").resolve()),
+        "html_path": str(html_path),
+        "markdown_path": str(markdown_path),
+        "html_url": _report_url(html_path, outputs_dir),
+        "markdown_url": _report_url(markdown_path, outputs_dir),
     }
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _safe_upload_name(filename: str) -> str:
+    raw_name = Path(filename or "upload.xlsx").name
+    stem = Path(raw_name).stem or "upload"
+    suffix = Path(raw_name).suffix.lower()
+    cleaned_stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", stem).strip(" ._") or "upload"
+    return f"{cleaned_stem[:80]}{suffix}"
+
+
+def _resolve_report_file(outputs_dir: Path, filename: str) -> Path:
+    requested_name = Path(filename).name
+    candidate = (outputs_dir / requested_name).resolve()
+    output_root = outputs_dir.resolve()
+    if candidate.parent != output_root or candidate.suffix.lower() not in REPORT_SUFFIXES:
+        raise HTTPException(status_code=404, detail="report not found")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="report not found")
+    return candidate
+
+
+def create_app(settings: Settings | None = None, startup_config: dict[str, Any] | None = None) -> FastAPI:
     app_settings = settings or load_settings(Path.cwd())
     app = FastAPI(title="Overall Situation Agent API")
     jobs = JobStore()
     sessions = ChatSessionStore(app_settings)
+    upload_root = (app_settings.logs_dir.parent / ".uploads").resolve()
+    web_startup = dict(startup_config or {})
 
     def make_agent() -> OverallSituationAgent:
         return OverallSituationAgent(app_settings)
@@ -139,6 +180,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"status": "ok", "es_index": app_settings.es_index}
+
+    @app.get("/api/web/startup")
+    def web_startup_config() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "project_dir": str(app_settings.logs_dir.parent.resolve()),
+            "es_index": app_settings.es_index,
+            "outputs_dir": str(app_settings.outputs_dir.resolve()),
+            "uploads_dir": str(upload_root),
+            "llm_enabled": bool(app_settings.llm_api_key),
+            "llm_report_enabled": app_settings.llm_report_enabled,
+            "defaults": web_startup,
+        }
+
+    @app.post("/api/uploads")
+    async def upload_files(files: list[UploadFile] = File(...)) -> dict[str, Any]:
+        if not files:
+            raise HTTPException(status_code=400, detail="no files uploaded")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        target_dir = upload_root / timestamp
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_paths: list[Path] = []
+        for upload in files:
+            filename = _safe_upload_name(upload.filename or "upload.xlsx")
+            suffix = Path(filename).suffix.lower()
+            if suffix not in UPLOAD_SUFFIXES:
+                raise HTTPException(status_code=400, detail=f"unsupported file type: {filename}")
+
+            target = target_dir / filename
+            with target.open("wb") as handle:
+                while True:
+                    chunk = await upload.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+            await upload.close()
+            saved_paths.append(target.resolve())
+
+        input_path = saved_paths[0] if len(saved_paths) == 1 else target_dir.resolve()
+        return {
+            "count": len(saved_paths),
+            "input_path": str(input_path),
+            "files": [str(path) for path in saved_paths],
+        }
+
+    @app.get("/api/reports/{filename}")
+    def report_file(filename: str) -> FileResponse:
+        path = _resolve_report_file(app_settings.outputs_dir, filename)
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.post("/api/import")
     def import_data(request: ImportRequest) -> dict[str, Any]:
@@ -155,7 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             end_date=request.end_date,
             schedule_input=request.schedule_input,
         )
-        return _path_result(path)
+        return _path_result(path, app_settings.outputs_dir)
 
     @app.post("/api/run")
     def run(request: RunRequest) -> dict[str, Any]:
@@ -167,7 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             recreate_index=request.recreate_index,
             schedule_input=request.schedule_input,
         )
-        return _path_result(path)
+        return _path_result(path, app_settings.outputs_dir)
 
     @app.post("/api/chat")
     def chat(request: ChatRequest) -> dict[str, Any]:
@@ -175,7 +268,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         answer = session.handle_message(request.message)
         payload: dict[str, Any] = {"session_id": session_id, "answer": answer}
         if session.state.last_report_path:
-            payload["report_paths"] = _path_result(session.state.last_report_path)
+            payload["report_paths"] = _path_result(session.state.last_report_path, app_settings.outputs_dir)
         return payload
 
     def submit_import(request: ImportRequest) -> JobRecord:

@@ -15,6 +15,12 @@
 
 当前项目不是 LangChain agent，也没有 LangChain tool registry。交互式能力由 `InteractiveOverallSituationApp`、`ESQueryBuilder`、`QueryPlan`、`AgentState` 和 `OpenAICompatibleClient` 自研组合实现。
 
+当前项目同时提供三种使用形态：
+
+- CLI 智能体：`python -m overall_situation_agent.cli chat`
+- API 服务：`python -m overall_situation_agent.cli serve`
+- Web 工作台：`python -m overall_situation_agent.cli web` 或 `.\start_web.bat`
+
 ## 2. 当前目录结构
 
 ```text
@@ -42,6 +48,18 @@ overall_situation_agent/
   template_executor.py
   template_registry.py
   validator.py
+  web_launcher.py
+vue_app/
+  src/app/
+  src/components/ui/
+  src/features/chat/
+  src/features/import/
+  src/features/jobs/
+  src/features/navigation/
+  src/features/reports/
+  src/services/
+  src/stores/
+  src/styles/
 es_mapping.json
 es_templates/
   00_common_*.json
@@ -57,6 +75,7 @@ README.internal.md
 SPEC.md
 requirements.txt
 .env.example
+start_web.bat
 ```
 
 模板分两类：
@@ -106,6 +125,39 @@ python -m overall_situation_agent.cli chat --schedule-input "..\data\schedule.xl
 
 ```powershell
 python -m overall_situation_agent.cli serve --host 127.0.0.1 --port 8000
+```
+
+启动 Web 工作台：
+
+```powershell
+python -m overall_situation_agent.cli web
+```
+
+Windows 一键启动：
+
+```powershell
+.\start_web.bat
+```
+
+带数据导入参数启动 Web：
+
+```powershell
+python -m overall_situation_agent.cli web --import-input "..\data\input.xlsx" --schedule-input "..\data\schedule.xlsx" --recreate-index --start-date 2026-03-01 --end-date 2026-03-31
+```
+
+`web` 命令由 `overall_situation_agent.web_launcher` 编排：
+
+- 自动选择可用 API/Web 端口，默认从 `8000` 和 `5173` 开始。
+- 首次缺少 `vue_app/node_modules` 时执行 `npm install`。
+- 启动 FastAPI、Vite dev server，并使用系统默认浏览器打开页面。
+- 通过 `/api/web/startup` 把启动参数注入前端。
+
+Web 前端本地校验：
+
+```powershell
+cd vue_app
+npm run typecheck
+npm run build
 ```
 
 ## 4. 配置项

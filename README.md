@@ -19,10 +19,12 @@ The current workflow is mapping-driven and template-driven:
 - Support date-range filtering and optional football schedule context.
 - Run an interactive command-line chat mode with read-only Elasticsearch data queries.
 - Serve synchronous and job/SSE HTTP APIs for import, report, run, and chat workflows.
+- Start a Vue 3 web workspace that covers import, report generation, chat, job progress, and report preview workflows.
 
 ## Requirements
 
 - Python 3.9+
+- Node.js 20+ and npm for the Vue web app
 - Local Elasticsearch instance
 - Elasticsearch IK analysis plugin matching the local ES version
 - OpenAI-compatible LLM API key for report narrative generation
@@ -35,6 +37,14 @@ Install Python dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
+```
+
+The one-click web startup installs `vue_app` dependencies automatically when `vue_app/node_modules` is missing. To install them manually:
+
+```powershell
+cd vue_app
+npm install
+cd ..
 ```
 
 Install the matching IK plugin for the local Elasticsearch version. Example for Elasticsearch 9.3.3:
@@ -122,6 +132,26 @@ Start the local API server:
 python -m overall_situation_agent.cli serve --host 127.0.0.1 --port 8000
 ```
 
+Start the Vue web app, API server, and default browser:
+
+```powershell
+python -m overall_situation_agent.cli web
+```
+
+Windows one-click startup:
+
+```powershell
+.\start_web.bat
+```
+
+The web command starts FastAPI and Vite, picks the next available ports when defaults are busy, and opens the system default browser. It accepts the same data-startup arguments used by the CLI workflows:
+
+```powershell
+python -m overall_situation_agent.cli web --import-input "<spreadsheet-or-directory>" --schedule-input "<schedule-file.xlsx>" --recreate-index --start-date 2026-03-01 --end-date 2026-03-31
+```
+
+When `--import-input` is supplied, the web page preloads that path and submits an import job after startup. The right-side import panel also supports browser uploads; uploaded `.xlsx/.xlsm` files are saved under `.uploads/` and then imported through the same backend importer.
+
 Generated files are written to `outputs/` by default.
 
 ## Configuration
@@ -137,6 +167,7 @@ Important environment variables:
 
 - `GET /health`
 - `POST /api/import`, `POST /api/report`, `POST /api/run`, `POST /api/chat`
+- `POST /api/uploads`, `GET /api/web/startup`, `GET /api/reports/{filename}`
 - `POST /api/jobs/import`, `POST /api/jobs/report`, `POST /api/jobs/run`, `POST /api/jobs/chat`
 - `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/events`
 
@@ -147,6 +178,9 @@ Basic validation:
 ```powershell
 python -m compileall -q overall_situation_agent
 python -m unittest discover -s tests
+cd vue_app
+npm run typecheck
+npm run build
 ```
 
 The regression target for the current project is that a report generated from the same March 2026 source data keeps the same chapter order, tables, counts, percentages, daily rows, match-day rows, and anomaly rows as the baseline Markdown report. LLM text may vary, but anchored numbers are protected by deterministic ES aggregation and fallback wording.

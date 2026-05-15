@@ -8,12 +8,12 @@
 
 - `es_mapping.json` 定义 Elasticsearch 索引 settings 与 mappings。
 - `es_templates/*.json` 定义报告生成和自然语言查询所需的只读 ES 查询。
-- CLI、API、chat、report 对外用法保持兼容。
+- CLI、API、chat、report、web 对外用法保持兼容。
 - LLM 负责自然语言总结，不负责统计数字。
 
 当前项目不是 LangChain agent，也没有 LangChain 风格的工具注册表。它由自研编排模块组成：
 
-- CLI 命令：`import`、`report`、`run`、`chat`、`serve`
+- CLI 命令：`import`、`report`、`run`、`chat`、`serve`、`web`
 - 报告编排：`OverallSituationAgent`
 - Mapping 加载：`mapping_loader`
 - 模板注册与执行：`TemplateRegistry`、`TemplateExecutor`
@@ -21,6 +21,7 @@
 - 只读 ES 查询器：`ESQueryBuilder`
 - OpenAI-compatible LLM 客户端：`OpenAICompatibleClient`
 - 本地 FastAPI/SSE API：`overall_situation_agent.api`
+- Vue 3 Web 工作台：`vue_app/`
 
 ## 2. 用户目标
 
@@ -28,7 +29,7 @@
 
 1. 把一份 Excel 或一个目录中的多份 Excel 导入本地 ES 索引。
 2. 基于已导入数据生成完整“整体情况”报告。
-3. 在 CLI 或 HTTP API 中追问数据问题，必要时通过 `/report` 生成报告。
+3. 在 CLI、HTTP API 或 Web 页面中追问数据问题，必要时通过 `/report` 生成报告。
 
 ## 3. 核心流程
 
@@ -70,6 +71,18 @@ serve -> FastAPI app
   -> SSE 事件：/api/jobs/{job_id}/events
 ```
 
+Web 链路：
+
+```text
+web 命令/start_web.bat -> 启动 FastAPI + Vite -> 打开默认浏览器
+  -> /api/web/startup 读取启动参数与非敏感配置
+  -> 路径导入或 /api/uploads 上传 Excel 到 .uploads
+  -> /api/jobs/import|report|run 执行任务
+  -> /api/jobs/{job_id}/events 展示 SSE 进度
+  -> /api/chat 复用交互式智能体
+  -> /api/reports/{filename} 预览或下载 outputs 下报告
+```
+
 ## 4. 功能范围
 
 ### 4.1 CLI
@@ -81,6 +94,19 @@ serve -> FastAPI app
 - `run`：先导入再生成报告。
 - `chat`：启动交互式 CLI 智能体。
 - `serve`：启动 FastAPI/SSE 本地 API 服务。
+- `web`：启动 Vue Web 工作台、FastAPI API 服务和默认浏览器。
+
+`web` 支持启动参数：
+
+- `--import-input`
+- `--schedule-input`
+- `--recreate-index`
+- `--start-date`
+- `--end-date`
+- `--output`
+- `--host`
+- `--api-port`
+- `--web-port`
 
 ### 4.2 报告内容
 
@@ -136,6 +162,40 @@ serve -> FastAPI app
 - `GET /api/jobs/{job_id}/events`
 
 任务状态保存在进程内存中，服务重启后不保留历史任务。
+
+Web 增强接口：
+
+- `POST /api/uploads`：上传一个或多个 `.xlsx/.xlsm` 文件，保存到 `.uploads/`，返回可被导入链路使用的本机路径。
+- `GET /api/web/startup`：返回 web 启动参数、ES index、输出目录、上传目录、LLM 可用状态等非敏感配置。
+- `GET /api/reports/{filename}`：只允许读取 `OUTPUTS_DIR` 下的 `.html` 或 `.md` 报告文件。
+
+`/api/report`、`/api/run` 和 chat `/report` 的报告路径结果继续返回 `html_path`、`markdown_path`，并额外返回 `html_url`、`markdown_url` 供 Web 预览和下载。
+
+### 4.5 Web
+
+Web 端位于 `vue_app/`，使用 `Vite + Vue 3 + TypeScript + Pinia`。
+
+页面结构：
+
+- 左侧：模式导航、历史会话入口、快捷操作。
+- 中间：ChatGPT 式对话区、输入框、报告卡片和报告预览。
+- 右侧：数据导入、赛程输入、重建索引、日期范围、输出路径、服务配置、任务进度和 SSE 事件。
+
+Web 功能覆盖 CLI 智能体能力：
+
+- 路径导入和浏览器上传导入。
+- 生成报告、导入并生成报告。
+- 智能问答、`/help`、`/context`、`/report`。
+- 查看任务状态与 SSE 事件。
+- 预览 HTML 报告并下载 Markdown 报告。
+
+启动方式：
+
+- 一键启动：`.\start_web.bat`
+- 命令行启动：`python -m overall_situation_agent.cli web`
+- 启动时带导入参数：`python -m overall_situation_agent.cli web --import-input "<主数据>" --schedule-input "<赛程.xlsx>" --recreate-index`
+
+默认端口从 API `8000`、Web `5173` 开始，若端口已占用，启动器选择后续可用端口。
 
 ## 5. 索引与模板规格
 
@@ -368,3 +428,10 @@ API 验收：
 - `python -m overall_situation_agent.cli serve --host 127.0.0.1 --port 8000` 能启动。
 - `/health` 返回 `status=ok`。
 - `/api/jobs/{job_id}/events` 能返回任务事件流。
+
+Web 验收：
+
+- `.\start_web.bat` 能启动 API、Vite，并使用系统默认浏览器打开页面。
+- `python -m overall_situation_agent.cli web --import-input "<路径>" --schedule-input "<赛程.xlsx>" --recreate-index` 能打开页面并自动提交导入任务。
+- 页面可完成上传导入、路径导入、报告生成、智能问答、`/report`、任务 SSE 查看、报告预览和 Markdown 下载。
+- `cd vue_app && npm run typecheck && npm run build` 通过。
