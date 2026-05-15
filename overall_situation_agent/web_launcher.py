@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -45,13 +46,20 @@ def _path_value(path: Path | None) -> str | None:
     return str(path.resolve()) if path else None
 
 
+def _npm_command() -> str:
+    npm = shutil.which("npm.cmd") or shutil.which("npm")
+    if not npm:
+        raise RuntimeError("未找到 npm。请先安装 Node.js 20+，或确认 npm 已加入 PATH。")
+    return npm
+
+
 def _ensure_frontend_dependencies(vue_dir: Path) -> None:
     if not (vue_dir / "package.json").is_file():
         raise RuntimeError(f"未找到前端工程：{vue_dir}")
     if (vue_dir / "node_modules").is_dir():
         return
     print("首次启动 web 端，正在安装前端依赖（npm install）...")
-    subprocess.run(["npm", "install"], cwd=vue_dir, check=True)
+    subprocess.run([_npm_command(), "install"], cwd=vue_dir, check=True)
 
 
 def _start_api_server(settings: Settings, host: str, port: int, startup_config: dict[str, Any]):
@@ -106,8 +114,9 @@ def launch_web(
 
     env = os.environ.copy()
     env["VITE_API_TARGET"] = api_url
+    npm = _npm_command()
     vite_command = [
-        "npm",
+        npm,
         "run",
         "dev",
         "--",
