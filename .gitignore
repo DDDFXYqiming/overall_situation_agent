@@ -14,3 +14,19 @@ venv/
 
 vue_app/node_modules/
 vue_app/dist/
+
+# Local-only project SPEC/profile docs
+SPEC.md
+SPEC.*.md
+SPEC_*.md
+SPEC-*.md
+spec.md
+spec.*.md
+spec_*.md
+spec-*.md
+
+# Local agent / planning artifacts
+.onboarded
+plan_*/
+skills/
+uv.lock
