@@ -74,6 +74,18 @@ class ESQueryBuilderDeterministicIntentTests(unittest.TestCase):
         self.assertEqual(terms["share_denominator"], 1144)
         self.assertEqual(terms["items"][0]["share"], round(539 / 1144, 4))
 
+    def test_single_day_count_and_negative_ratio_uses_daily_detail_template(self) -> None:
+        intent = self.builder.build_deterministic_intent("2026年3月14日的问题量和负向占比是多少？")
+
+        self.assertIsNotNone(intent)
+        assert intent is not None
+        self.assertEqual(intent["metadata"]["template_id"], "03_trend_daily_detail_table")
+        self.assertEqual(intent["metadata"]["template_params"]["start_date"], "2026-03-14")
+        self.assertEqual(intent["metadata"]["template_params"]["end_date_exclusive"], "2026-03-15")
+        self.assertIn("daily", intent["query"]["aggs"])
+        date_filter = intent["query"]["query"]["bool"]["filter"][0]["range"]["service_time"]
+        self.assertEqual(date_filter, {"gte": "2026-03-14", "lt": "2026-03-15"})
+
     def test_dynamic_sample_size_matches_expected_data_scale(self) -> None:
         self.assertEqual(dynamic_samples_per_label(2_000), 24)
         self.assertEqual(dynamic_samples_per_label(10_000), 48)

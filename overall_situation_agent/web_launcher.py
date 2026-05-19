@@ -129,7 +129,7 @@ def launch_web(
     vite_process = subprocess.Popen(vite_command, cwd=vue_dir, env=env)
 
     try:
-        _wait_for_port(host, web_port)
+        _wait_for_port(host, web_port, timeout_seconds=60.0)
         print(f"API 服务：{api_url}")
         print(f"Web 端：{web_url}")
         print("正在使用默认浏览器打开 web 端...")

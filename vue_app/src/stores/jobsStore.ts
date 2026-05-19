@@ -7,9 +7,12 @@ import { useReportStore } from "./reportStore";
 export const useJobsStore = defineStore("jobs", {
   state: () => ({
     activeJob: null as JobRecord | null,
+    recentJobs: [] as JobRecord[],
     events: [] as JobEvent[],
     streaming: false,
     error: "",
+    lastKind: null as JobKind | null,
+    lastPayload: null as null | (ImportPayload | ReportPayload | RunPayload | ChatPayload),
     unsubscribe: null as null | (() => void)
   }),
   getters: {
@@ -19,9 +22,12 @@ export const useJobsStore = defineStore("jobs", {
     async submit(kind: JobKind, payload: ImportPayload | ReportPayload | RunPayload | ChatPayload) {
       this.error = "";
       this.events = [];
+      this.lastKind = kind;
+      this.lastPayload = payload;
       this.unsubscribe?.();
       try {
         this.activeJob = await apiClient.createJob(kind, payload);
+        this.recentJobs = [this.activeJob, ...this.recentJobs.filter((job) => job.job_id !== this.activeJob?.job_id)].slice(0, 10);
         this.streaming = true;
         this.unsubscribe = subscribeJobEvents(
           this.activeJob.job_id,
@@ -46,12 +52,21 @@ export const useJobsStore = defineStore("jobs", {
       }
       try {
         this.activeJob = await apiClient.getJob(this.activeJob.job_id);
+        this.recentJobs = [this.activeJob, ...this.recentJobs.filter((job) => job.job_id !== this.activeJob?.job_id)].slice(0, 10);
         if (this.activeJob.status === "completed" && this.activeJob.result && (kind === "report" || kind === "run")) {
           useReportStore().addFromUnknown(this.activeJob.result, kind === "run" ? "导入并生成" : "生成报告");
         }
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
       }
+    },
+    retryLast() {
+      if (this.lastKind && this.lastPayload) {
+        void this.submit(this.lastKind, this.lastPayload);
+      }
+    },
+    clearEvents() {
+      this.events = [];
     }
   }
 });

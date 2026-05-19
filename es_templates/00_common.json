@@ -1,0 +1,88 @@
+{
+  "template_group": "00_common",
+  "description": "公共时间过滤、已标注和未标注基础查询模板。",
+  "templates": [
+    {
+      "id": "00_common_date_range_filter",
+      "visibility": "llm",
+      "question": "2026年3月整个月的服务数据范围是什么？",
+      "description": "所有报告 ES 查询默认叠加该服务时间范围。默认示例周期为 2026-03-01 至 2026-03-31，ES 上界使用 {{end_date_exclusive}} 的左闭右开区间。",
+      "dsl": {
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "00_common_labeled_base_query",
+      "visibility": "llm",
+      "question": "2026年3月里，哪些工单算已完成一二三级标签标注的数据？",
+      "description": "用于问题分布、一级模块、三级小节、趋势和异动节点统计。已标注口径为 primary_labels 字段存在。",
+      "dsl": {
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "00_common_unlabeled_base_query",
+      "visibility": "llm",
+      "question": "2026年3月里，哪些工单属于还没标注一二三级标签的数据？",
+      "description": "用于“未标注一二三级标签服务数据分析”。未标注口径为 primary_labels 字段不存在。",
+      "dsl": {
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "must_not": [
+                    {
+                      "exists": {
+                        "field": "primary_labels"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -85,7 +85,7 @@ MULTI_VALUE_FIELDS = {
     "four_operation",
 }
 
-NEGATIVE_EMOTIONS = ["愤怒", "失望", "焦虑", "不满", "烦躁"]
+NEGATIVE_EMOTIONS = ["愤怒", "厌恶", "恐惧", "悲伤"]
 
 
 def index_mapping() -> dict:

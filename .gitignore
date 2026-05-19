@@ -30,3 +30,8 @@ spec-*.md
 plan_*/
 skills/
 uv.lock
+
+# Temporary / upload / tool dirs
+temp/
+.uploads/
+.playwright-cli/

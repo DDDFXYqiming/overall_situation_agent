@@ -25,6 +25,7 @@ class QueryTemplate:
     id: str
     question: str
     description: str
+    visibility: str
     dsl: dict[str, Any]
     path: Path
 
@@ -34,27 +35,57 @@ class QueryTemplate:
         return set(PLACEHOLDER_RE.findall(raw))
 
 
-def _load_template(path: Path) -> QueryTemplate:
+def _validate_template_item(data: dict[str, Any], path: Path, template_id: str) -> QueryTemplate:
+    allowed_keys = {"id", "question", "description", "visibility", "dsl"}
+    unknown = set(data) - allowed_keys
+    if unknown:
+        raise TemplateError(f"Template has unsupported keys at {path} [{template_id}]: {', '.join(sorted(unknown))}")
+    if not isinstance(data.get("question"), str) or not data["question"].strip():
+        raise TemplateError(f"Template question must be a non-empty string: {path} [{template_id}]")
+    if not isinstance(data.get("description"), str) or not data["description"].strip():
+        raise TemplateError(f"Template description must be a non-empty string: {path} [{template_id}]")
+    if not isinstance(data.get("dsl"), dict) or not data["dsl"]:
+        raise TemplateError(f"Template dsl must be a non-empty object: {path} [{template_id}]")
+    visibility = data.get("visibility")
+    if visibility is None:
+        visibility = "runtime" if template_id.startswith("90_runtime_") else "llm"
+    if visibility not in {"llm", "runtime"}:
+        raise TemplateError(f"Template visibility must be llm or runtime: {path} [{template_id}]")
+    try:
+        normalized_id = str(template_id)
+    except Exception as exc:  # pragma: no cover - defensive only
+        raise TemplateError(f"Template id is invalid: {path} [{template_id}]") from exc
+    return QueryTemplate(
+        id=normalized_id,
+        question=data["question"],
+        description=data["description"],
+        visibility=visibility,
+        dsl=data["dsl"],
+        path=path,
+    )
+
+
+def _load_templates_from_file(path: Path) -> list[QueryTemplate]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise TemplateError(f"Template is not valid JSON: {path}: {exc}") from exc
     keys = set(data)
-    if keys != {"question", "description", "dsl"}:
-        raise TemplateError(f"Template top-level keys must be question/description/dsl only: {path}")
-    if not isinstance(data["question"], str) or not data["question"].strip():
-        raise TemplateError(f"Template question must be a non-empty string: {path}")
-    if not isinstance(data["description"], str) or not data["description"].strip():
-        raise TemplateError(f"Template description must be a non-empty string: {path}")
-    if not isinstance(data["dsl"], dict) or not data["dsl"]:
-        raise TemplateError(f"Template dsl must be a non-empty object: {path}")
-    return QueryTemplate(
-        id=path.stem,
-        question=data["question"],
-        description=data["description"],
-        dsl=data["dsl"],
-        path=path,
-    )
+    if keys == {"question", "description", "dsl"}:
+        return [_validate_template_item(data, path, path.stem)]
+    if "templates" not in data:
+        raise TemplateError(f"Template file must be a flat template or contain templates[]: {path}")
+    if not isinstance(data["templates"], list) or not data["templates"]:
+        raise TemplateError(f"Template file templates must be a non-empty list: {path}")
+    templates = []
+    for idx, item in enumerate(data["templates"]):
+        if not isinstance(item, dict):
+            raise TemplateError(f"Template entry must be an object: {path} [{idx}]")
+        template_id = item.get("id")
+        if not isinstance(template_id, str) or not template_id.strip():
+            raise TemplateError(f"Combined template entry must include a non-empty id: {path} [{idx}]")
+        templates.append(_validate_template_item(item, path, template_id.strip()))
+    return templates
 
 
 class TemplateRegistry:
@@ -67,10 +98,10 @@ class TemplateRegistry:
             raise TemplateError(f"Template directory not found: {self.template_dir}")
         templates: dict[str, QueryTemplate] = {}
         for path in sorted(self.template_dir.glob("*.json")):
-            template = _load_template(path)
-            if template.id in templates:
-                raise TemplateError(f"Duplicate template id: {template.id}")
-            templates[template.id] = template
+            for template in _load_templates_from_file(path):
+                if template.id in templates:
+                    raise TemplateError(f"Duplicate template id: {template.id}")
+                templates[template.id] = template
         if not templates:
             raise TemplateError(f"No JSON templates found under {self.template_dir}")
         return templates
@@ -93,7 +124,7 @@ class TemplateRegistry:
     def list_for_llm(self, limit: int = 40) -> list[dict[str, str]]:
         items = []
         for template in self.templates.values():
-            if template.id.startswith("90_runtime_"):
+            if template.visibility != "llm":
                 continue
             items.append(
                 {

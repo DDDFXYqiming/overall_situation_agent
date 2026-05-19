@@ -5,7 +5,7 @@
         <h2>配置与导入</h2>
         <p>{{ configStore.apiUrl }}</p>
       </div>
-      <ChevronsRight :size="20" />
+      <button class="collapse-button" @click="uiStore.toggleRightPanel"><ChevronsRight :size="20" /></button>
     </header>
 
     <section class="panel-section">
@@ -83,10 +83,14 @@ import JobProgress from "@/features/jobs/JobProgress.vue";
 import { useConfigStore } from "@/stores/configStore";
 import { useImportStore } from "@/stores/importStore";
 import { useJobsStore } from "@/stores/jobsStore";
+import { useChatStore } from "@/stores/chatStore";
+import { useUiStore } from "@/stores/uiStore";
 
 const configStore = useConfigStore();
 const importStore = useImportStore();
 const jobsStore = useJobsStore();
+const chatStore = useChatStore();
+const uiStore = useUiStore();
 
 function filesFromEvent(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -102,25 +106,31 @@ async function uploadSchedule(event: Event) {
 }
 
 function submitImport() {
-  void jobsStore.submit("import", importStore.importPayload());
+  void chatStore.submitJobCommand("import");
 }
 
 function submitReport() {
-  void jobsStore.submit("report", importStore.reportPayload());
+  void chatStore.submitJobCommand("report");
 }
 
 function submitRun() {
-  void jobsStore.submit("run", importStore.runPayload());
+  void chatStore.submitJobCommand("run");
 }
 </script>
 
 <style scoped>
 .import-panel {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 0;
+  overflow: auto;
   background: #fff;
+}
+
+.import-panel.is-collapsed {
+  display: none;
 }
 
 header {
@@ -130,6 +140,22 @@ header {
   justify-content: space-between;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border);
+}
+
+.collapse-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.collapse-button:hover {
+  background: var(--muted);
 }
 
 h2,
@@ -289,7 +315,7 @@ input:focus {
 @media (max-width: 1180px) {
   .import-panel {
     grid-column: 2;
-    min-height: auto;
+    height: 100dvh;
     border-top: 1px solid var(--border);
   }
 }
@@ -297,6 +323,8 @@ input:focus {
 @media (max-width: 820px) {
   .import-panel {
     grid-column: auto;
+    height: auto;
+    max-height: none;
   }
 }
 </style>

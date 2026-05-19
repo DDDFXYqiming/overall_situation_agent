@@ -438,9 +438,9 @@ def _llm_business_dimension(result: dict[str, Any], llm, section: str) -> list[s
     if not llm or not llm.enabled:
         return []
 
-    svc_str = "; ".join(t["display"] for t in _top_with_share(result.get("service_type", []), 5)) or "无"
-    tert_str = "; ".join(t["display"] for t in _top_with_share(result.get("tertiary", []), 5)) or "无"
-    insight_str = "; ".join(t["display"] for t in _top_with_share(result.get("insight_dimension", []), 3)) or "无"
+    svc_str = _join_keys(result.get("service_type", []), 5)
+    tert_str = _join_keys(result.get("tertiary", []), 5)
+    insight_str = _join_keys(result.get("insight_dimension", []), 3)
 
     evidence = result.get("tertiary_evidence", {})
     appeals: list[str] = []
@@ -459,9 +459,9 @@ def _llm_business_dimension(result: dict[str, Any], llm, section: str) -> list[s
     prompt = "\n".join([
         "你是投诉分析报告撰写助手。",
         "",
-        "以下是供你理解业务问题的数据，正文不得直接列出其中的数字或占比：",
-        f"服务类型分布：{svc_str}",
-        f"三级问题TOP：{tert_str}",
+        "以下信息只用于理解业务问题，正文不得复述字段名、数字、占比或排名：",
+        f"服务类型名称：{svc_str}",
+        f"高频三级问题名称：{tert_str}",
         f"洞察维度：{insight_str}",
         "客户关键诉求样本：",
         "\n---\n".join(appeals[:30]) if appeals else "无",
@@ -476,21 +476,33 @@ def _llm_business_dimension(result: dict[str, Any], llm, section: str) -> list[s
         "5. 可基于服务类型、三级问题、用户诉求、客服处理动作做归纳，但不要直接抄输入数据。",
         "6. 重点说明服务流程薄弱环节、用户心理和业务链路矛盾。",
         "7. 只输出最终段落，不要输出思考过程、Markdown或条目列表。",
+        "",
+        "硬性禁用：阿拉伯数字、百分号、占比、TOP、Top、top、排名、排行、第一、第二、第三、第四、第五、第六、第七、第八、第九、第十。",
+        "表达方式：用连续段落描述问题，不要使用“首先、其次、再次、最后”等排序连接词。",
     ])
 
-    variants = [
-        prompt,
-        prompt + "\n\n上一轮不合规。请重新输出一段180-220字的自然语言正文，仍以“业务维度上，”开头，正文里不要出现任何数字、百分比、条数、占比或TOP。",
-        prompt + "\n\n请最后重写一次：只输出最终段落，180-220字，无数字、无占比、无TOP、无条数。",
-    ]
-    for idx, variant in enumerate(variants, start=1):
-        logger.info("distribution business dimension request section=%s attempt=%s/%s", section, idx, len(variants))
+    last_reason = ""
+    attempts = 4
+    for idx in range(1, attempts + 1):
+        variant = prompt
+        if last_reason:
+            variant += (
+                "\n\n上一轮输出未通过硬校验，原因："
+                f"{last_reason}。请完全重写，不要解释原因；继续只输出一段正文，且必须满足所有禁用词和长度要求。"
+            )
+        logger.info("distribution business dimension request section=%s attempt=%s/%s", section, idx, attempts)
         resp = llm.chat(
             [
-                {"role": "system", "content": "你是一个投诉分析报告撰写助手。只输出最终正文，不输出思考过程。"},
+                {
+                    "role": "system",
+                    "content": (
+                        "你是一个投诉分析报告撰写助手。只输出一段最终中文正文，不输出思考过程、标题、编号、列表或解释。"
+                        "正文必须遵守用户给出的禁用词和长度要求。"
+                    ),
+                },
                 {"role": "user", "content": variant},
             ],
-            temperature=0.2,
+            temperature=0.0,
             max_tokens=520,
             timeout_seconds=max(60, min(getattr(llm, "report_timeout", 60), 75)),
             max_retries=1,
@@ -502,15 +514,16 @@ def _llm_business_dimension(result: dict[str, Any], llm, section: str) -> list[s
                 "distribution business dimension accepted section=%s attempt=%s/%s chars=%s",
                 section,
                 idx,
-                len(variants),
+                attempts,
                 _compact_char_len(result_text),
             )
             return [result_text]
+        last_reason = reason
         logger.info(
             "distribution business dimension rejected section=%s attempt=%s/%s reason=%s",
             section,
             idx,
-            len(variants),
+            attempts,
             reason,
         )
     return []
@@ -1455,7 +1468,6 @@ def _build_tertiary_cause_detail_llm(evidence_labels: list[dict], llm) -> list[d
                 ("content_summary", content_summary),
                 ("cs_reply_summary", cs_reply_summary),
                 ("root_cause", root_cause),
-                ("user_voice_natural", user_voice_natural),
             ]:
                 if not field_value:
                     last_error = f"字段为空：{field_name}"
@@ -1825,7 +1837,7 @@ def build_report_narratives(result: dict[str, Any], llm: OpenAICompatibleClient)
             missing_tertiary.append(label)
             continue
         if not detail.get("user_voice_natural"):
-            raise RuntimeError(f"典型用户原话缺失：{label}")
+            logger.warning("典型用户原话缺失（已降级跳过）：%s", label)
         if _looks_like_template_phrase(detail.get("user_voice_natural", "")):
             raise RuntimeError(f"典型用户原话仍为模板句：{label}")
         for field in ("content_summary", "cs_reply_summary", "root_cause"):

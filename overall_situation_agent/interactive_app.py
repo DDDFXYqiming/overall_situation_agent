@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .agent import OverallSituationAgent
 from .config import Settings
+from .es_client import ElasticsearchError
 from .es_query_builder import ESQueryBuilder, ESQueryError, LLMUnavailableError
 from .llm_client import OpenAICompatibleClient, parse_json_object
 from .output_naming import make_report_path
@@ -22,6 +23,9 @@ HELP_TEXT = """
   涉及工单/投诉/标签/趋势等数据问题时，会生成 Elasticsearch 查询并基于结果回答
   不涉及数据查询的问题，会作为普通对话直接回答，不生成文档
 
+首次测试：
+  如果当前 ES_INDEX 还没有导入数据，请先用 chat --import-input <主数据Excel> --schedule-input <赛事日Excel> --recreate-index 启动
+
 内置命令：
   /help      查看提示
   /context   查看当前会话状态
@@ -35,6 +39,14 @@ HELP_TEXT = """
   /report
   /report 2026-01-01 到 2026-01-31
 """.strip()
+
+
+def _missing_index_query_message(index_name: str) -> str:
+    return (
+        f"数据查询失败：Elasticsearch 索引不存在：{index_name}。\n"
+        "请退出后使用 chat --import-input <主数据Excel> --schedule-input <赛事日Excel> --recreate-index 先导入数据；"
+        "如果你切换了 ES_INDEX，也需要对新索引重新导入。"
+    )
 
 
 DATA_QUERY_TERMS = [
@@ -306,6 +318,17 @@ class InteractiveOverallSituationApp:
             return message
         except ESQueryError as exc:
             message = _sanitize_console_text(f"数据查询失败：{exc}")
+            self.state.add_assistant(message)
+            self._maybe_compact_history()
+            if echo:
+                print(message)
+            return message
+        except ElasticsearchError as exc:
+            text = str(exc)
+            if "索引不存在" in text:
+                message = _sanitize_console_text(_missing_index_query_message(self.settings.es_index))
+            else:
+                message = _sanitize_console_text(f"数据查询失败：{exc}")
             self.state.add_assistant(message)
             self._maybe_compact_history()
             if echo:

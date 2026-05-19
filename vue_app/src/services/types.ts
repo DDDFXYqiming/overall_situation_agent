@@ -1,5 +1,6 @@
 export type JobKind = "import" | "report" | "run" | "chat";
 export type JobStatus = "queued" | "running" | "completed" | "failed";
+export type AppMode = "chat" | "cli" | "api" | "reports" | "settings";
 
 export interface ReportPaths {
   html_path: string;
@@ -94,6 +95,15 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   pending?: boolean;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  sessionId: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
 }
 
 export interface ReportItem extends ReportPaths {

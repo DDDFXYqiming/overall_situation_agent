@@ -1,6 +1,7 @@
 <template>
   <form class="composer" @submit.prevent="submit">
     <textarea
+      ref="textareaRef"
       v-model="draft"
       rows="2"
       placeholder="输入问题..."
@@ -14,24 +15,36 @@
         <BaseButton variant="ghost" icon-only title="生成报告" @click="chatStore.send('/report')"><FileText :size="18" /></BaseButton>
       </div>
       <div class="right-actions">
+        <BaseButton v-if="chatStore.error" variant="danger" @click="chatStore.retryLast">重试</BaseButton>
         <BaseButton variant="secondary" @click="chatStore.send('/report')"><FileText :size="16" />生成报告</BaseButton>
         <BaseButton variant="primary" icon-only :disabled="chatStore.sending || !draft.trim()" type="submit" title="发送">
           <SendHorizontal :size="19" />
         </BaseButton>
       </div>
     </div>
-    <p>Shift + Enter 换行，Enter 发送</p>
+    <p>{{ chatStore.sending ? "正在处理..." : "Shift + Enter 换行，Enter 发送" }}</p>
   </form>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { AtSign, CircleHelp, FileText, SendHorizontal } from "lucide-vue-next";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useChatStore } from "@/stores/chatStore";
+import { useUiStore } from "@/stores/uiStore";
 
 const chatStore = useChatStore();
+const uiStore = useUiStore();
 const draft = ref("");
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+watch(
+  () => uiStore.composerFocusToken,
+  async () => {
+    await nextTick();
+    textareaRef.value?.focus();
+  }
+);
 
 async function submit() {
   const text = draft.value;

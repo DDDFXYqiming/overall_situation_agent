@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import socket
@@ -104,6 +105,7 @@ class OpenAICompatibleClient:
                 except (
                     urllib.error.URLError,
                     urllib.error.HTTPError,
+                    http.client.RemoteDisconnected,
                     TimeoutError,
                     socket.timeout,
                     KeyError,

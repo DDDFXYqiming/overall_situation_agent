@@ -1,0 +1,322 @@
+{
+  "template_group": "01_distribution",
+  "description": "报告抬头、核心摘要、问题分布和未标注分析模板。",
+  "templates": [
+    {
+      "id": "01_distribution_header_period_range",
+      "visibility": "llm",
+      "question": "这份报告的数据周期起止日期分别是什么？",
+      "description": "取查询周期内 service_time 的最小值与最大值，用于生成“数据周期：YYYY-MM-DD 至 YYYY-MM-DD”。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "period_min": {
+            "min": {
+              "field": "service_time"
+            }
+          },
+          "period_max": {
+            "max": {
+              "field": "service_time"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_header_total_service_count",
+      "visibility": "llm",
+      "question": "这份报告在2026年3月的总服务数据量是多少？",
+      "description": "统计查询周期内全量服务数据命中数，不排除未标注数据。hits.total.value 即总服务数据量。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_executive_summary_inputs",
+      "visibility": "llm",
+      "question": "生成核心摘要和行动建议时，需要先看哪些聚合结果？",
+      "description": "一次性拉取一级、二级、三级、情绪、服务类型分布，供模型生成核心摘要与行动建议。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 20
+            }
+          },
+          "secondary": {
+            "terms": {
+              "field": "secondary_labels",
+              "size": 30
+            }
+          },
+          "tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 30
+            }
+          },
+          "emotion": {
+            "terms": {
+              "field": "scene_emotion",
+              "size": 20
+            }
+          },
+          "service_type": {
+            "terms": {
+              "field": "scene_service_type",
+              "size": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_executive_top3_tertiary_exact",
+      "visibility": "llm",
+      "question": "核心摘要里的三类问题（退订困难/自动续费争议、权益无法兑换/使用、多端体验有差异）各有多少条、占比多少？",
+      "description": "统计报告实际展示的三项高频三级问题，分母为总服务数据量。实际报告对应 539、377、228，分别约 24.6%、17.2%、10.4%。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "top3_tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 3,
+              "include": [
+                "退订困难/自动续费争议",
+                "权益无法兑换/使用（如不知如何兑换、兑换失败）",
+                "多端体验有差异（操作一致性）"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_conclusion_aggregations",
+      "visibility": "llm",
+      "question": "在1.1问题分布概览里，一级、二级、三级和情绪的主要分布分别是什么？",
+      "description": "一级、二级、三级、情绪分布一次聚合，分母为总服务数据量；用于生成分布结论中的 Top 一级、Top 二级、Top 三级和情绪结构。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 20
+            }
+          },
+          "secondary": {
+            "terms": {
+              "field": "secondary_labels",
+              "size": 30
+            }
+          },
+          "tertiary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 30
+            }
+          },
+          "emotion": {
+            "terms": {
+              "field": "scene_emotion",
+              "size": 20
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_unlabeled_analysis",
+      "visibility": "llm",
+      "question": "2026年3月未标注一二三级标签的数据有多少条、占比多少，主要情绪和诉求是什么？",
+      "description": "统计周期内 primary_labels 不存在的服务数据量、情绪、客户关键诉求和服务提供商分布。未标注占比等于未标注服务数据量除以总服务数据量。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "bool": {
+                  "must_not": [
+                    {
+                      "exists": {
+                        "field": "primary_labels"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "emotion": {
+            "terms": {
+              "field": "scene_emotion",
+              "size": 10
+            }
+          },
+          "customer_key_appeal": {
+            "terms": {
+              "field": "customer_key_appeal.keyword",
+              "size": 10
+            }
+          },
+          "csp_name": {
+            "terms": {
+              "field": "csp_name",
+              "size": 10
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "01_distribution_primary_overview",
+      "visibility": "llm",
+      "question": "一级问题概览里，业务体验、使用体验、内容体验、营销活动各有多少条、占比多少？",
+      "description": "统计报告展示的业务体验、使用体验、内容体验、营销活动四类一级问题，提及量取 buckets.doc_count，占比以总服务数据量为分母。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary_top4": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 4,
+              "include": [
+                "业务体验",
+                "使用体验",
+                "内容体验",
+                "营销活动"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

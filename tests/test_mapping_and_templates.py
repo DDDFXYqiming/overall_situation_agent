@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from overall_situation_agent.mapping_loader import allowed_search_fields, load_index_mapping
 from overall_situation_agent.schema import index_mapping
 from overall_situation_agent.template_executor import TemplateExecutor
+from overall_situation_agent.template_registry import TemplateRegistry
 
 
 class MappingAndTemplateTests(unittest.TestCase):
@@ -42,11 +44,59 @@ class MappingAndTemplateTests(unittest.TestCase):
         self.assertIn("customer_key_appeal.keyword", fields)
         self.assertIn("营销活动匹配说明.keyword", fields)
 
-    def test_all_templates_keep_flat_contract_and_parse(self) -> None:
-        for path in Path("es_templates").glob("*.json"):
+    def test_combined_templates_parse_and_keep_unique_ids(self) -> None:
+        paths = sorted(Path("es_templates").glob("*.json"))
+        self.assertEqual(
+            [path.name for path in paths],
+            [
+                "00_common.json",
+                "01_distribution.json",
+                "02_primary_modules.json",
+                "03_trend_anomaly.json",
+                "90_runtime_report.json",
+            ],
+        )
+
+        seen: set[str] = set()
+        for path in paths:
             data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(set(data), {"question", "description", "dsl"}, path.name)
-            self.assertIsInstance(data["dsl"], dict, path.name)
+            self.assertIn("templates", data, path.name)
+            self.assertIsInstance(data["templates"], list, path.name)
+            for item in data["templates"]:
+                self.assertEqual(set(item), {"id", "visibility", "question", "description", "dsl"}, item)
+                self.assertNotIn(item["id"], seen)
+                seen.add(item["id"])
+                self.assertIn(item["visibility"], {"llm", "runtime"})
+                self.assertIsInstance(item["dsl"], dict, item["id"])
+
+        self.assertEqual(len(seen), 30)
+
+    def test_legacy_flat_template_files_are_still_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy_template.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "question": "2026年3月总服务量是多少？",
+                        "description": "旧三键模板兼容性测试。",
+                        "dsl": {"query": {"match_all": {}}},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            registry = TemplateRegistry(Path(tmp))
+
+        self.assertIn("legacy_template", registry.templates)
+        self.assertEqual(registry.templates["legacy_template"].visibility, "llm")
+
+    def test_runtime_templates_are_hidden_from_llm_listing(self) -> None:
+        listed = TemplateRegistry().list_for_llm()
+
+        self.assertTrue(listed)
+        self.assertFalse(any(item["template_id"].startswith("90_runtime_") for item in listed))
+        self.assertIn("01_distribution_header_total_service_count", {item["template_id"] for item in listed})
 
     def test_runtime_template_renders_inclusive_end_date_as_exclusive_range(self) -> None:
         body = TemplateExecutor().render_with_dates(

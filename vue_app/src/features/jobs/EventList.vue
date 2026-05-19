@@ -2,7 +2,7 @@
   <div class="events">
     <div class="events__header">
       <h3>任务事件（SSE）</h3>
-      <button @click="jobsStore.events = []">清空</button>
+      <button @click="jobsStore.clearEvents()">清空</button>
     </div>
     <div class="event-list">
       <div v-for="event in jobsStore.events" :key="`${event.receivedAt}-${event.event}-${JSON.stringify(event.data)}`" class="event-row">

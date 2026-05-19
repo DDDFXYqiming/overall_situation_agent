@@ -1,0 +1,279 @@
+{
+  "template_group": "02_primary_modules",
+  "description": "一级模块、三级标签分布、样本原声和一级小结模板。",
+  "templates": [
+    {
+      "id": "02_primary_module_title_counts",
+      "visibility": "llm",
+      "question": "四个一级模块标题里的数量和占比（业务体验、使用体验、内容体验、营销活动）分别是多少？",
+      "description": "一次返回业务体验、使用体验、内容体验、营销活动四个一级标签数量。模块标题占比以总服务数据量为分母。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary_exact": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 10,
+              "include": [
+                "业务体验",
+                "使用体验",
+                "内容体验",
+                "营销活动"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02_primary_tertiary_distribution_by_primary",
+      "visibility": "llm",
+      "question": "在一级标签“业务体验”下面，各三级标签的频次占比分别是多少？",
+      "description": "在指定一级标签 {{primary_label}} 内统计三级标签分布，生成诉求类型和频次占比；频次占比以该一级标签总量为分母。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              },
+              {
+                "term": {
+                  "primary_labels": "{{primary_label}}"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "tertiary_by_primary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 20
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02_primary_tertiary_sample_for_voice_and_summary",
+      "visibility": "llm",
+      "question": "针对三级标签“退订困难/自动续费争议”，典型用户原话和分析小结需要抽取哪些样本数据？",
+      "description": "按三级标签 {{tertiary_label}} 抽样工单内容、客服回复、客户诉求和客服处理动作，供模型生成用户原话转述与“服务内容/客服应对/根因判断”分析小结。",
+      "dsl": {
+        "size": 24,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              },
+              {
+                "term": {
+                  "tertiary_labels": "{{tertiary_label}}"
+                }
+              }
+            ]
+          }
+        },
+        "_source": [
+          "content",
+          "cs_reply",
+          "customer_key_appeal",
+          "customer_keywords",
+          "cs_key_action",
+          "cs_keywords",
+          "service_time",
+          "scene_emotion"
+        ],
+        "aggs": {
+          "appeal_agg": {
+            "terms": {
+              "field": "customer_key_appeal.keyword",
+              "size": 5
+            }
+          },
+          "cs_action_agg": {
+            "terms": {
+              "field": "cs_key_action.keyword",
+              "size": 5
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02_primary_tertiary_title_count",
+      "visibility": "llm",
+      "question": "一级标签“业务体验”下面，三级标签“退订困难/自动续费争议”的数量和占该一级问题比例是多少？",
+      "description": "同一条 ES 查询同时返回指定一级标签 {{primary_label}} 的总量和指定三级标签 {{tertiary_label}} 的数量。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary_total": {
+            "filter": {
+              "term": {
+                "primary_labels": "{{primary_label}}"
+              }
+            }
+          },
+          "tertiary_count": {
+            "filter": {
+              "bool": {
+                "must": [
+                  {
+                    "term": {
+                      "primary_labels": "{{primary_label}}"
+                    }
+                  },
+                  {
+                    "term": {
+                      "tertiary_labels": "{{tertiary_label}}"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02_primary_top3_summary_inputs",
+      "visibility": "llm",
+      "question": "在一级标签“业务体验”里，Top3三级标签分别是什么、各有多少条？",
+      "description": "在指定一级标签 {{primary_label}} 内统计 Top3 三级标签，生成一级末尾分析小结固定开头。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              },
+              {
+                "term": {
+                  "primary_labels": "{{primary_label}}"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "top3_tertiary_in_primary": {
+            "terms": {
+              "field": "tertiary_labels",
+              "size": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "02_primary_overall_evaluation_inputs",
+      "visibility": "llm",
+      "question": "做一级标签综合评价时，一级标签分布的原始数据是什么？",
+      "description": "取一级标签分布并结合四个一级模块小结，由模型输出两段综合评价。综合评价只写总体态势与治理节奏。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "primary": {
+            "terms": {
+              "field": "primary_labels",
+              "size": 20
+            }
+          }
+        }
+      }
+    }
+  ]
+}

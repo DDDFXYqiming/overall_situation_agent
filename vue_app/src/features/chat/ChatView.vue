@@ -3,6 +3,8 @@
     <div class="messages" ref="messagesRef">
       <MessageBubble v-for="message in chatStore.messages" :key="message.id" :message="message" />
 
+      <JobInlineCard v-if="jobsStore.activeJob" />
+
       <section v-if="reportStore.reports.length" class="report-strip">
         <ReportCard v-for="report in reportStore.reports.slice(0, 2)" :key="report.id" :report="report" />
       </section>
@@ -25,11 +27,14 @@ import { nextTick, ref, watch } from "vue";
 import BaseButton from "@/components/ui/BaseButton.vue";
 import MessageBubble from "@/features/chat/MessageBubble.vue";
 import ChatComposer from "@/features/chat/ChatComposer.vue";
+import JobInlineCard from "@/features/chat/JobInlineCard.vue";
 import ReportCard from "@/features/reports/ReportCard.vue";
 import { useChatStore } from "@/stores/chatStore";
+import { useJobsStore } from "@/stores/jobsStore";
 import { useReportStore } from "@/stores/reportStore";
 
 const chatStore = useChatStore();
+const jobsStore = useJobsStore();
 const reportStore = useReportStore();
 const messagesRef = ref<HTMLElement | null>(null);
 
@@ -45,8 +50,10 @@ watch(
 <style scoped>
 .chat-view {
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .messages {

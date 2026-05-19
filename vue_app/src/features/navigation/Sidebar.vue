@@ -8,16 +8,17 @@
       </div>
     </div>
 
-    <BaseButton class="new-chat" variant="primary" @click="chatStore.send('/help')">
+    <BaseButton class="new-chat" variant="primary" @click="newChat">
       <Plus :size="18" />
       新建对话
       <kbd>⌘ K</kbd>
     </BaseButton>
 
     <nav class="nav-list" aria-label="主功能">
-      <button class="is-active"><MessageCircle :size="18" />智能问答</button>
-      <button @click="chatStore.send('你能做什么')"><TerminalSquare :size="18" />CLI 代理</button>
-      <button @click="configStore.refreshHealth()"><Workflow :size="18" />API 工作流</button>
+      <button :class="{ 'is-active': uiStore.mode === 'chat' }" @click="openMode('chat')"><MessageCircle :size="18" />智能问答</button>
+      <button :class="{ 'is-active': uiStore.mode === 'cli' }" @click="openMode('cli')"><TerminalSquare :size="18" />CLI 代理</button>
+      <button :class="{ 'is-active': uiStore.mode === 'api' }" @click="openMode('api')"><Workflow :size="18" />API 工作流</button>
+      <button :class="{ 'is-active': uiStore.mode === 'reports' }" @click="openMode('reports')"><FileText :size="18" />报告中心</button>
     </nav>
 
     <section class="history">
@@ -25,18 +26,23 @@
         <span>历史对话</span>
         <Search :size="16" />
       </div>
-      <button v-for="item in historyItems" :key="item.title">
+      <button
+        v-for="item in conversationStore.conversations"
+        :key="item.id"
+        :class="{ 'is-current': item.id === conversationStore.activeId }"
+        @click="selectConversation(item.id)"
+      >
         <MessageCircle :size="15" />
         <span>{{ item.title }}</span>
-        <time>{{ item.time }}</time>
+        <time>{{ shortTime(item.updatedAt) }}</time>
       </button>
     </section>
 
     <section class="quick">
       <div class="section-title">快捷操作</div>
-      <button @click="chatStore.send('/context')"><Info :size="16" />查看上下文</button>
-      <button @click="chatStore.send('/report')"><FileText :size="16" />生成报告</button>
-      <button @click="configStore.refreshHealth()"><RefreshCw :size="16" />检查 API</button>
+      <button @click="sendCommand('/context')"><Info :size="16" />查看上下文</button>
+      <button @click="sendCommand('/report')"><FileText :size="16" />生成报告</button>
+      <button @click="checkApi"><RefreshCw :size="16" />检查 API</button>
     </section>
 
     <div class="account">
@@ -63,18 +69,42 @@ import {
 import BaseButton from "@/components/ui/BaseButton.vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useConfigStore } from "@/stores/configStore";
+import { useConversationStore } from "@/stores/conversationStore";
+import { useUiStore } from "@/stores/uiStore";
+import type { AppMode } from "@/services/types";
 
 const chatStore = useChatStore();
 const configStore = useConfigStore();
+const conversationStore = useConversationStore();
+const uiStore = useUiStore();
 
-const historyItems = [
-  { title: "本周服务整体情况分析", time: "10:24" },
-  { title: "投诉趋势与高频问题", time: "昨天" },
-  { title: "接口错误率排查", time: "昨天" },
-  { title: "服务满意度汇总", time: "5/19" },
-  { title: "月度报告生成", time: "5/16" },
-  { title: "数据导入结果检查", time: "5/15" }
-];
+function newChat() {
+  conversationStore.create();
+  uiStore.setMode("chat");
+}
+
+function openMode(mode: AppMode) {
+  uiStore.setMode(mode);
+}
+
+function selectConversation(id: string) {
+  conversationStore.switchTo(id);
+  uiStore.setMode("chat");
+}
+
+function sendCommand(command: string) {
+  uiStore.setMode("chat");
+  void chatStore.send(command);
+}
+
+async function checkApi() {
+  await configStore.refreshHealth();
+  uiStore.setMode("api");
+}
+
+function shortTime(value: string) {
+  return value.split(" ").pop()?.slice(0, 5) || value;
+}
 </script>
 
 <style scoped>
@@ -162,7 +192,7 @@ kbd {
 .history button:hover,
 .quick button:hover,
 .nav-list .is-active,
-.history button:first-of-type {
+.history .is-current {
   background: rgba(0, 82, 255, 0.08);
   color: var(--accent);
 }
@@ -230,7 +260,7 @@ kbd {
   }
 
   .nav-list {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     padding-bottom: 10px;
   }
 

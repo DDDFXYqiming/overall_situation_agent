@@ -522,6 +522,8 @@ class ESQueryBuilder:
             return "01_distribution_header_period_range"
         if any(term in question for term in ("总服务", "总量", "服务数据量")):
             return "01_distribution_header_total_service_count"
+        if self._is_single_day_metric_question(question, params):
+            return "03_trend_daily_detail_table"
         if any(term in question for term in TREND_TERMS):
             if "异动" in question:
                 return "03_trend_anomaly_nodes"
@@ -541,6 +543,13 @@ class ESQueryBuilder:
         if any(marker in question for marker in ("一级", "二级", "三级", "情绪", "分布", "占比")):
             return "01_distribution_conclusion_aggregations"
         return None
+
+    def _is_single_day_metric_question(self, question: str, params: dict[str, Any]) -> bool:
+        if not params.get("start_date") or params.get("start_date") != params.get("end_date"):
+            return False
+        metric_terms = ("问题量", "工单量", "投诉量", "服务量", "负向", "负面", "情绪占比")
+        day_terms = ("当天", "当日", "这天", "该日", "那天")
+        return any(term in question for term in metric_terms) or any(term in question for term in day_terms)
 
     def _extract_dates(self, question: str) -> list[str]:
         matches = re.findall(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", question)

@@ -1,0 +1,397 @@
+{
+  "template_group": "03_trend_anomaly",
+  "description": "每日趋势、赛事日样例和异动节点模板。",
+  "templates": [
+    {
+      "id": "03_trend_daily_aggregation",
+      "visibility": "llm",
+      "question": "2026年3月按天看，问题量、负向占比、主要一级/二级/三级问题、服务类型和会员类型每天分别是什么？",
+      "description": "按天统计已标注服务数据，并在每天聚合负向情绪、主要一级/二级/三级问题、服务类型和会员/业务类型。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            },
+            "aggs": {
+              "negative": {
+                "filter": {
+                  "terms": {
+                    "scene_emotion": [
+                      "愤怒",
+                      "厌恶",
+                      "恐惧",
+                      "悲伤"
+                    ]
+                  }
+                }
+              },
+              "top_primary": {
+                "terms": {
+                  "field": "primary_labels",
+                  "size": 3
+                }
+              },
+              "top_secondary": {
+                "terms": {
+                  "field": "secondary_labels",
+                  "size": 3
+                }
+              },
+              "top_tertiary": {
+                "terms": {
+                  "field": "tertiary_labels",
+                  "size": 3
+                }
+              },
+              "top_service_type": {
+                "terms": {
+                  "field": "scene_service_type",
+                  "size": 3
+                }
+              },
+              "top_member_cluster": {
+                "terms": {
+                  "field": "biz_member_cluster",
+                  "size": 3
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "03_trend_daily_detail_table",
+      "visibility": "llm",
+      "question": "2026年3月每日明细表里，每天的问题量、负向占比、是否赛事日和主要三级问题分别是什么？",
+      "description": "复用日聚合结果生成日期、问题量、负向占比、赛事日和主要三级问题；异动标记由 growth >= 50% 且 count >= 5 计算得到。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            },
+            "aggs": {
+              "negative": {
+                "filter": {
+                  "terms": {
+                    "scene_emotion": [
+                      "愤怒",
+                      "厌恶",
+                      "恐惧",
+                      "悲伤"
+                    ]
+                  }
+                }
+              },
+              "top_tertiary": {
+                "terms": {
+                  "field": "tertiary_labels",
+                  "size": 3
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "03_trend_matchday_date_counts",
+      "visibility": "llm",
+      "question": "2026年3月哪些日期是赛事日，对应当天的问题量分别是多少？",
+      "description": "只按天返回已标注服务数据量，用于与赛程表日期做等值匹配；赛事摘要文字由赛程表轮次、时间、主队、客队拼接，不是 ES 计算。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "03_trend_matchday_voice_samples",
+      "visibility": "llm",
+      "question": "像2026-03-07、2026-03-14这类赛事日，样例原声摘要和主要问题是怎么取出来的？",
+      "description": "在日聚合中增加 top_hits，抽取赛事日样本，结合当日 Top3 三级问题生成样例摘要。",
+      "dsl": {
+        "size": 0,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            },
+            "aggs": {
+              "negative": {
+                "filter": {
+                  "terms": {
+                    "scene_emotion": [
+                      "愤怒",
+                      "厌恶",
+                      "恐惧",
+                      "悲伤"
+                    ]
+                  }
+                }
+              },
+              "top_tertiary": {
+                "terms": {
+                  "field": "tertiary_labels",
+                  "size": 3
+                }
+              },
+              "sample_hits": {
+                "top_hits": {
+                  "size": 3,
+                  "_source": [
+                    "service_time",
+                    "content",
+                    "customer_key_appeal",
+                    "scene_emotion",
+                    "primary_labels",
+                    "secondary_labels",
+                    "tertiary_labels",
+                    "operation_action",
+                    "biz_member_cluster",
+                    "match_label"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "03_trend_anomaly_nodes",
+      "visibility": "llm",
+      "question": "2026年3月异动最高的是哪天、日环比增幅多少，当天主要问题是什么？",
+      "description": "复用日聚合中的主要一级、二级、三级问题、服务类型和会员/业务聚类，按 day_over_day_growth >= 50% 且 count >= 5 筛选异动节点。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            },
+            "aggs": {
+              "negative": {
+                "filter": {
+                  "terms": {
+                    "scene_emotion": [
+                      "愤怒",
+                      "厌恶",
+                      "恐惧",
+                      "悲伤"
+                    ]
+                  }
+                }
+              },
+              "top_primary": {
+                "terms": {
+                  "field": "primary_labels",
+                  "size": 3
+                }
+              },
+              "top_secondary": {
+                "terms": {
+                  "field": "secondary_labels",
+                  "size": 3
+                }
+              },
+              "top_tertiary": {
+                "terms": {
+                  "field": "tertiary_labels",
+                  "size": 3
+                }
+              },
+              "top_service_type": {
+                "terms": {
+                  "field": "scene_service_type",
+                  "size": 3
+                }
+              },
+              "top_member_cluster": {
+                "terms": {
+                  "field": "biz_member_cluster",
+                  "size": 3
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "03_trend_chart_summary",
+      "visibility": "llm",
+      "question": "2026年3月每日问题量和负向占比里，峰值日、负向峰值日、赛事日合计和最高异动增幅分别是多少？",
+      "description": "由日聚合结果派生峰值、负向峰值、赛事日合计和异动最高增幅；赛事日需要与赛程表日期匹配。",
+      "dsl": {
+        "size": 0,
+        "track_total_hits": true,
+        "query": {
+          "bool": {
+            "filter": [
+              {
+                "range": {
+                  "service_time": {
+                    "gte": "{{start_date}}",
+                    "lt": "{{end_date_exclusive}}"
+                  }
+                }
+              },
+              {
+                "exists": {
+                  "field": "primary_labels"
+                }
+              }
+            ]
+          }
+        },
+        "aggs": {
+          "daily": {
+            "date_histogram": {
+              "field": "service_time",
+              "calendar_interval": "day",
+              "format": "yyyy-MM-dd",
+              "min_doc_count": 0
+            },
+            "aggs": {
+              "negative": {
+                "filter": {
+                  "terms": {
+                    "scene_emotion": [
+                      "愤怒",
+                      "厌恶",
+                      "恐惧",
+                      "悲伤"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
