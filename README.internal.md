@@ -263,20 +263,14 @@ Sheet 选择：
 - index analyzer: `migu_analyzer`
 - search analyzer: `migu_search_analyzer`
 
-因此本机 ES 必须安装 IK 分词插件，提供 `ik_max_word` 和 `ik_smart`。
+Elasticsearch 需要安装 IK 分词插件，提供 `ik_max_word` 和 `ik_smart`。
 
-## 8. 本机 ES 与 IK 插件
+## 8. Elasticsearch 与 IK 插件
 
-本机已验证的 ES 路径：
-
-```text
-C:\tools\elasticsearch-9.3.3
-```
-
-安装命令示例：
+将 `ES_HOME` 环境变量设为 Elasticsearch 的安装目录，再安装与服务版本匹配的 IK 插件。
 
 ```powershell
-C:\tools\elasticsearch-9.3.3\bin\elasticsearch-plugin.bat install --batch https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.3.3.zip
+& "$env:ES_HOME\bin\elasticsearch-plugin.bat" install --batch https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.3.3.zip
 ```
 
 安装后需要重启 ES。
@@ -551,29 +545,7 @@ Mapping 与模板验证覆盖：
 - `es_templates/*.json` 顶层严格为 `question`、`description`、`dsl`
 - 模板 DSL 顶层只包含合法 `_search` body 字段
 
-当前回归基准：
-
-```text
-outputs/overall_situation_20260513_174056_整体情况报告.md
-```
-
-本次重构验证过的输出：
-
-```text
-outputs/template_refactor_validation_整体情况报告.md
-outputs/template_refactor_validation_整体情况报告.html
-```
-
-验收重点：
-
-- 总量 2,193
-- 未标注 580
-- 四个一级模块
-- 19 个三级标签计数/占比
-- 31 行每日明细
-- 8 个赛事日
-- Top3 异动节点
-- 标题顺序与基准报告一致
+回归检查应使用固定测试数据与相同配置，比较总量、未标注数量、标签计数、每日明细、赛程关联和异动节点。章节顺序与确定性统计结果应保持一致，模型生成的叙述可以变化。
 
 ## 19. 常见排障
 

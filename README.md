@@ -49,8 +49,10 @@ cd ..
 
 Install the matching IK plugin for the local Elasticsearch version. Example for Elasticsearch 9.3.3:
 
+Set `ES_HOME` to your Elasticsearch installation directory before running the command.
+
 ```powershell
-C:\tools\elasticsearch-9.3.3\bin\elasticsearch-plugin.bat install --batch https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.3.3.zip
+& "$env:ES_HOME\bin\elasticsearch-plugin.bat" install --batch https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.3.3.zip
 ```
 
 Restart Elasticsearch after installation, then verify:
@@ -183,7 +185,7 @@ npm run typecheck
 npm run build
 ```
 
-The regression target for the current project is that a report generated from the same March 2026 source data keeps the same chapter order, tables, counts, percentages, daily rows, match-day rows, and anomaly rows as the baseline Markdown report. LLM text may vary, but anchored numbers are protected by deterministic ES aggregation and fallback wording.
+Regression checks compare reports generated from the same input and configuration, including chapter order, tables, counts, percentages, daily rows, schedule-linked rows and anomaly rows. LLM text may vary, but anchored numbers are protected by deterministic ES aggregation and fallback wording.
 
 ## Repository Hygiene
 
