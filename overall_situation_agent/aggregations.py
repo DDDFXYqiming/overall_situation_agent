@@ -507,15 +507,11 @@ def _load_four_dim_mapping() -> dict[str, tuple[str, str]]:
     from pathlib import Path
 
     mapping: dict[str, tuple[str, str]] = {}
-    candidate_paths = [
-        Path(r"C:\Users\86187\Desktop\营服工作记录2026\调研\标签\新数据20260508\咪咕视频三级问题标签-补充标记.xlsx"),
-        Path(r"/mnt/c/Users/86187/Desktop/营服工作记录2026/调研/标签/新数据20260508/咪咕视频三级问题标签-补充标记.xlsx"),
-    ]
-    label_file = None
-    for p in candidate_paths:
-        if p.exists():
-            label_file = p
-            break
+    import os
+    configured_path = os.getenv("SUPPLEMENTARY_LABELS_FILE", "").strip()
+    label_file = Path(configured_path).expanduser() if configured_path else None
+    if label_file is not None and not label_file.is_file():
+        raise FileNotFoundError("SUPPLEMENTARY_LABELS_FILE does not name a readable file")
 
     if label_file is None:
         _FOUR_DIM_CACHE = mapping

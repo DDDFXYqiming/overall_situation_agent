@@ -25,7 +25,6 @@
     "dynamic": true,
     "_meta": {
       "description": "咪咕视频中超赛事用户洞察“一、整体情况”项目：Excel 导入 Elasticsearch 后的字段映射说明。",
-      "main_data_source": "C:\\Users\\86187\\Desktop\\营服工作记录2026\\调研\\标签\\新数据20260511\\im-10086-新工单数据汇总_比赛信息已验证_省份数据更新龄_营销活动打标(1).xlsx",
       "main_sheet_name": "Sheet1",
       "main_row_count": 2194,
       "main_column_count": 44,
@@ -386,7 +385,6 @@
         }
       ],
       "schedule_mapping": {
-        "source_file": "C:\\Users\\86187\\Desktop\\营服工作记录2026\\调研\\标签\\data\\2026怡宝中国足球超级联赛赛程_0409_更新.xlsx",
         "sheet_name": "联赛赛程",
         "title": "2026怡宝中国足球超级联赛赛程",
         "raw_header_row": [

@@ -158,6 +158,8 @@ Generated files are written to `outputs/` by default.
 
 ## Configuration
 
+`SUPPLEMENTARY_LABELS_FILE` optionally selects the supplementary label workbook. When omitted, the existing built-in dimension mapping remains available. An explicitly configured missing file raises an error instead of silently reading a developer-specific directory.
+
 Important environment variables:
 
 - `ES_URL`, `ES_INDEX`, `ES_USERNAME`, `ES_PASSWORD`, `ES_VERIFY_CERTS`
