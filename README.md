@@ -1,196 +1,93 @@
-# Overall Situation Agent
+简体中文 | [English](README.en.md)
 
-A local Python agent for importing tagged service records into Elasticsearch and generating the “overall situation” HTML/Markdown report.
+# Overall Situation Agent · 全局态势分析智能体
 
-The current workflow is mapping-driven and template-driven:
+**面向服务工单与多维业务记录的本地数据智能聚合、分析与态势研报智能体**。
 
-- `es_mapping.json` is the create-index body used by the importer.
-- `es_templates/*.json` are the read-only Elasticsearch query templates used by report generation and natural-language data queries.
-- The CLI, API, chat mode, report renderer, and LLM narrative layer all share the same Elasticsearch index and template registry.
+`Overall Situation Agent` 是一个兼具全流程数据清洗、Elasticsearch 聚合计算与大模型叙事研报生成的本地智能分析系统。它支持将零散的 Excel/CSV 业务记录批量导入带有 IK 中文分词的 Elasticsearch 集群中，基于严格的 DSL 查询模板体系执行多维数据透视，并结合大语言模型在“数据绝对锚定”的前提下，自动生成结构化、专业级态势分析报告（HTML / Markdown），同时配备 Vue 3 交互式 Web 工作台与 CLI 终端分析模式。
 
-## Features
+---
 
-- Import one spreadsheet file or a directory of spreadsheet files.
-- Normalize spreadsheet columns into canonical Elasticsearch fields.
-- Create the Elasticsearch index from `es_mapping.json`.
-- Execute report and chat queries from JSON templates in `es_templates/`.
-- Generate local HTML and Markdown reports from Elasticsearch aggregations.
-- Add OpenAI-compatible LLM narrative wording while keeping report numbers anchored to ES results.
-- Support date-range filtering and optional football schedule context.
-- Run an interactive command-line chat mode with read-only Elasticsearch data queries.
-- Serve synchronous and job/SSE HTTP APIs for import, report, run, and chat workflows.
-- Start a Vue 3 web workspace that covers import, report generation, chat, job progress, and report preview workflows.
+## 核心特性与架构
 
-## Requirements
+```
+[原始 Excel / CSV 表格] ──> [字段标准化与清洗] ──> [Elasticsearch + IK 中文分词]
+                                                                  │
+                                                                  ▼
+[HTML / Markdown 态势报告] <── [LLM 深度洞察与叙事] <── [DSL 模板聚合运算 (es_templates)]
+          ▲
+          │
+[Vue 3 Web 工作台 / 交互式 CLI / SSE 作业流]
+```
 
-- Python 3.9+
-- Node.js 20+ and npm for the Vue web app
-- Local Elasticsearch instance
-- Elasticsearch IK analysis plugin matching the local ES version
-- OpenAI-compatible LLM API key for report narrative generation
+* **双轨驱动（Mapping & Template-Driven）**：
+  * **结构化索引映射（`es_mapping.json`）**：定义规范字段类型与 IK 细粒度分词策略，字段缺失或分词异常具备清晰报错机制。
+  * **DSL 模板注册表（`es_templates/*.json`）**：将业务统计逻辑与自然语言查询意图解耦为声明式 JSON 模板，所有 DSL 执行均受只读权限与占位符强校验保护。
+* **数据严谨性保证（Numbers Anchored to ES）**：报表中的所有统计数字、环比变化与占比分布严格源自 Elasticsearch 原生聚合，大模型仅负责叙事润色、异动归因与决策建议，杜绝大模型数字幻觉。
+* **全功能多端交互模式**：
+  * **现代化 Vue 3 Web 工作台**：一键拖拽导入表格、查看导入作业流、发起自然语言问数、在线预览图文研报；
+  * **交互式 CLI 终端**：快速在控制台执行结构化聚合与态势问答；
+  * **RESTful & SSE 实时任务 API**：支持异步作业排队与进度流式推送。
+* **时序与上下文关联**：支持精准的时间切片筛选，并可灵活叠加重大活动或赛程节点等外部业务上下文。
 
-The bundled `es_mapping.json` uses `ik_max_word` and `ik_smart` analyzers for Chinese text fields. If IK is missing, index creation fails with a clear setup error instead of silently degrading the mapping.
+---
 
-## Setup
+## 环境依赖
 
-Install Python dependencies:
+* **Python**：3.9 或更高版本
+* **Node.js**：20 或更高版本（用于运行 Vue 3 Web 工作台）
+* **搜索引擎**：本地或远程 Elasticsearch（推荐 8.x / 9.x，需安装对应版本的 IK 中文分词插件）
+* **大语言模型**：任意 OpenAI 兼容的 API Key（用于态势叙事与洞察生成）
+
+---
+
+## 快速开始
+
+### 1. 安装后端依赖
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-The one-click web startup installs `vue_app` dependencies automatically when `vue_app/node_modules` is missing. To install them manually:
+### 2. 配置环境变量
 
-```powershell
-cd vue_app
-npm install
-cd ..
-```
-
-Install the matching IK plugin for the local Elasticsearch version. Example for Elasticsearch 9.3.3:
-
-Set `ES_HOME` to your Elasticsearch installation directory before running the command.
-
-```powershell
-& "$env:ES_HOME\bin\elasticsearch-plugin.bat" install --batch https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.3.3.zip
-```
-
-Restart Elasticsearch after installation, then verify:
-
-```powershell
-curl http://localhost:9200/_cat/plugins?v
-curl -X POST "http://localhost:9200/_analyze" -H "Content-Type: application/json" -d "{\"analyzer\":\"ik_smart\",\"text\":\"用户退订困难\"}"
-```
-
-Create a local `.env` file based on `.env.example`:
+从模板复制并编辑本地 `.env` 文件：
 
 ```ini
 ES_URL=http://localhost:9200
 ES_INDEX=tagged_feedback
 ES_VERIFY_CERTS=false
 
-LLM_API_KEY=
+LLM_API_KEY=sk-xxxx
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
 LLM_REPORT_ENABLED=true
 ```
 
-## Mapping And Templates
+### 3. 一键启动 Web 工作台
 
-`es_mapping.json` is loaded by `overall_situation_agent.mapping_loader` and returned by `schema.index_mapping()`. It contains:
-
-- `settings.analysis` for the IK analyzers.
-- `mappings.dynamic=true`.
-- `mappings.properties` for runtime ES field types.
-- `mappings._meta.field_catalog` for source-column descriptions and transformation notes.
-
-`es_templates` contains flat JSON query templates with exactly these top-level keys:
-
-```json
-{
-  "question": "...",
-  "description": "...",
-  "dsl": {}
-}
-```
-
-Business-facing templates (`00_*`, `01_*`, `02_*`, `03_*`) support natural-language query matching. Runtime templates (`90_runtime_*`) externalize the report-generation Elasticsearch DSL that used to be hard-coded in Python.
-
-All templates are loaded through `TemplateRegistry` and executed through `TemplateExecutor`. Template rendering supports placeholders such as `{{start_date}}`, `{{end_date_exclusive}}`, `{{primary_label}}`, `{{tertiary_label}}`, and `{{sample_size}}`; every rendered DSL body is validated as a read-only `_search` body before execution.
-
-## Usage
-
-Import data:
+系统提供开箱即用的一键启动脚本（自动检查前端依赖与端口状态）：
 
 ```powershell
-python -m overall_situation_agent.cli import --input "<spreadsheet-or-directory>" --recreate-index
+.\start-web.ps1
 ```
+*(或在根目录执行 `python -m overall_situation_agent.cli serve` 启动后端 API，在 `vue_app` 目录执行 `npm run dev` 启动前端)*
 
-Generate a report from the existing ES index:
+### 4. 命令行交互模式
 
 ```powershell
-python -m overall_situation_agent.cli report
+# 批量导入表格数据
+python -m overall_situation_agent.cli import-data --file ./data/service_records.xlsx
+
+# 生成指定时间段态势报告
+python -m overall_situation_agent.cli generate-report --start-date 2026-09-01 --end-date 2026-09-30 --format html
+
+# 启动交互式问数终端
+python -m overall_situation_agent.cli chat
 ```
 
-Run import and report generation together:
+---
 
-```powershell
-python -m overall_situation_agent.cli run --input "<spreadsheet-or-directory>"
-```
+## 许可证
 
-Run with date filters and schedule input:
-
-```powershell
-python -m overall_situation_agent.cli run --input "<spreadsheet-or-directory>" --start-date 2026-03-01 --end-date 2026-03-31 --schedule-input "<schedule-file.xlsx>"
-```
-
-Start interactive chat:
-
-```powershell
-python -m overall_situation_agent.cli chat --schedule-input "<schedule-file.xlsx>"
-```
-
-Start the local API server:
-
-```powershell
-python -m overall_situation_agent.cli serve --host 127.0.0.1 --port 8000
-```
-
-Start the Vue web app, API server, and default browser:
-
-```powershell
-python -m overall_situation_agent.cli web
-```
-
-Windows one-click startup:
-
-```powershell
-.\start_web.bat
-```
-
-The web command starts FastAPI and Vite, picks the next available ports when defaults are busy, and opens the system default browser. It accepts the same data-startup arguments used by the CLI workflows:
-
-```powershell
-python -m overall_situation_agent.cli web --import-input "<spreadsheet-or-directory>" --schedule-input "<schedule-file.xlsx>" --recreate-index --start-date 2026-03-01 --end-date 2026-03-31
-```
-
-When `--import-input` is supplied, the web page preloads that path and submits an import job after startup. The right-side import panel also supports browser uploads; uploaded `.xlsx/.xlsm` files are saved under `.uploads/` and then imported through the same backend importer.
-
-Generated files are written to `outputs/` by default.
-
-## Configuration
-
-`SUPPLEMENTARY_LABELS_FILE` optionally selects the supplementary label workbook. When omitted, the existing built-in dimension mapping remains available. An explicitly configured missing file raises an error instead of silently reading a developer-specific directory.
-
-Important environment variables:
-
-- `ES_URL`, `ES_INDEX`, `ES_USERNAME`, `ES_PASSWORD`, `ES_VERIFY_CERTS`
-- `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `DEEPSEEK_API_KEY`
-- `LLM_REPORT_ENABLED`, `LLM_REPORT_TIMEOUT_SECONDS`, `LLM_REPORT_MAX_RETRIES`, `LLM_REPORT_MAX_TOKENS`
-- `IMPORT_BATCH_SIZE`, `OUTPUTS_DIR`, `LOGS_DIR`, `IMPORT_STATE_FILE`
-
-## API Routes
-
-- `GET /health`
-- `POST /api/import`, `POST /api/report`, `POST /api/run`, `POST /api/chat`
-- `POST /api/uploads`, `GET /api/web/startup`, `GET /api/reports/{filename}`
-- `POST /api/jobs/import`, `POST /api/jobs/report`, `POST /api/jobs/run`, `POST /api/jobs/chat`
-- `GET /api/jobs/{job_id}`, `GET /api/jobs/{job_id}/events`
-
-## Validation
-
-Basic validation:
-
-```powershell
-python -m compileall -q overall_situation_agent
-python -m unittest discover -s tests
-cd vue_app
-npm run typecheck
-npm run build
-```
-
-Regression checks compare reports generated from the same input and configuration, including chapter order, tables, counts, percentages, daily rows, schedule-linked rows and anomaly rows. LLM text may vary, but anchored numbers are protected by deterministic ES aggregation and fallback wording.
-
-## Repository Hygiene
-
-The repository excludes secrets, local environment files, generated report outputs, private source spreadsheets, and temporary archives.
-
-`es_mapping.json` and `es_templates/*.json` are committed because they are runtime configuration required by the current workflow.
+本项目基于 [MIT License](LICENSE) 开源。
