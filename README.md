@@ -10,14 +10,14 @@
 
 ## 核心特性与架构
 
-```
-[原始 Excel / CSV 表格] ──> [字段标准化与清洗] ──> [Elasticsearch + IK 中文分词]
-                                                                  │
-                                                                  ▼
-[HTML / Markdown 态势报告] <── [LLM 深度洞察与叙事] <── [DSL 模板聚合运算 (es_templates)]
-          ▲
-          │
-[Vue 3 Web 工作台 / 交互式 CLI / SSE 作业流]
+```mermaid
+flowchart TD
+    A["原始 Excel / CSV 表格"] --> B["字段标准化清洗与校验"]
+    B --> C["Elasticsearch + IK 细粒度中文分词索引"]
+    C --> D["声明式 DSL 模板库聚合运算 (es_templates)"]
+    D --> E["LLM 深度归因与研报叙事生成<br/><i>(数值绝对锚定 ES 聚合，杜绝幻觉)</i>"]
+    E --> F["输出专业 HTML / Markdown 态势报告"]
+    F <--> G["Vue 3 Web 工作台 / 交互式 CLI / SSE 实时任务流"]
 ```
 
 * **双轨驱动（Mapping & Template-Driven）**：

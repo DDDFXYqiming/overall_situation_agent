@@ -10,14 +10,14 @@
 
 ## Architectural Highlights
 
-```
-[Raw Excel / CSV Tables] ──> [Schema Mapping & Cleaning] ──> [Elasticsearch + IK Analyzers]
-                                                                     │
-                                                                     ▼
-[HTML / Markdown Reports] <── [Narrative Insight Engine] <── [DSL Query Templates (es_templates)]
-           ▲
-           │
-[Vue 3 Web Workspace / Interactive CLI / SSE Job Stream]
+```mermaid
+flowchart TD
+    A["Raw Excel / CSV Tables"] --> B["Schema Validation & Data Cleansing"]
+    B --> C["Elasticsearch + IK Tokenized Indices"]
+    C --> D["Declarative DSL Query Templates (es_templates)"]
+    D --> E["LLM Narrative Insights & Executive Reports<br/><i>(Metrics strictly anchored to ES aggregations)</i>"]
+    E --> F["Generated HTML / Markdown Reports"]
+    F <--> G["Vue 3 Web Workspace / Interactive CLI / SSE Job Stream"]
 ```
 
 * **Mapping & Template-Driven Design**:
